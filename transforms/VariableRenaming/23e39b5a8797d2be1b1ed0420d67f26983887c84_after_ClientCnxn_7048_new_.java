@@ -43,6 +43,7 @@ import com.yahoo.zookeeper.AsyncCallback.VoidCallback;
 import com.yahoo.zookeeper.Watcher.Event;
 import com.yahoo.zookeeper.ZooDefs.OpCode;
 import com.yahoo.zookeeper.ZooKeeper.States;
+import com.yahoo.zookeeper.ZooKeeper.WatchRegistration;
 import com.yahoo.zookeeper.proto.AuthPacket;
 import com.yahoo.zookeeper.proto.ConnectRequest;
 import com.yahoo.zookeeper.proto.ConnectResponse;
@@ -158,7 +159,9 @@ class ClientCnxn {
 
         Object ctx;
 
-        Packet(RequestHeader header, ReplyHeader replyHeader, Record record, Record response, ByteBuffer bb) {
+        WatchRegistration watchRegistration;
+
+        Packet(RequestHeader header, ReplyHeader replyHeader, Record record, Record response, ByteBuffer bb, WatchRegistration watchRegistration) {
             this.header = header;
             this.replyHeader = replyHeader;
             this.request = record;
@@ -183,6 +186,7 @@ class ClientCnxn {
                     LOG.warn("Unexpected exception", e);
                 }
             }
+            this.watchRegistration = watchRegistration;
         }
     }
 
@@ -255,7 +259,7 @@ class ClientCnxn {
                         break;
                     }
                     if (event instanceof WatcherEvent) {
-                        zooKeeper.watcher.process((WatcherEvent) event);
+                        zooKeeper.processWatchEvent((WatcherEvent) event);
                     } else {
                         Packet p = (Packet) event;
                         int rc = 0;
@@ -316,13 +320,16 @@ class ClientCnxn {
                         }
                     }
                 }
-            } catch (InterruptedException e) {
+            } catch (InterruptedException var14) {
             }
         }
     }
 
     @SuppressWarnings("unchecked")
     private void finishPacket(Packet p) {
+        if (p.watchRegistration != null) {
+            p.watchRegistration.register(p.replyHeader.getErr());
+        }
         p.finished = true;
         if (p.cb == null) {
             synchronized (p) {
@@ -547,9 +554,9 @@ class ClientCnxn {
             bb.rewind();
             synchronized (outgoingQueue) {
                 for (AuthData id : authInfo) {
-                    outgoingQueue.addFirst(new Packet(new RequestHeader(-4, OpCode.auth), null, new AuthPacket(0, id.scheme, id.data), null, null));
+                    outgoingQueue.addFirst(new Packet(new RequestHeader(-4, OpCode.auth), null, new AuthPacket(0, id.scheme, id.data), null, null, null));
                 }
-                outgoingQueue.addFirst((new Packet(null, null, null, null, bb)));
+                outgoingQueue.addFirst((new Packet(null, null, null, null, bb, null)));
             }
             synchronized (this) {
                 k.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
@@ -558,7 +565,7 @@ class ClientCnxn {
 
         private void sendPing() {
             RequestHeader h = new RequestHeader(-2, OpCode.ping);
-            queuePacket(h, null, null, null, null, null, null);
+            queuePacket(h, null, null, null, null, null, null, null);
         }
 
         int lastConnectIndex = -1;
@@ -754,9 +761,9 @@ class ClientCnxn {
         return xid++;
     }
 
-    public ReplyHeader submitRequest(RequestHeader h, Record request, Record response) throws InterruptedException {
+    public ReplyHeader submitRequest(RequestHeader h, Record request, Record response, WatchRegistration watchRegistration) throws InterruptedException {
         ReplyHeader r = new ReplyHeader();
-        Packet packet = queuePacket(h, r, request, response, null, null, null);
+        Packet packet = queuePacket(h, r, request, response, null, null, null, watchRegistration);
         synchronized (packet) {
             while (!packet.finished) {
                 packet.wait();
@@ -765,13 +772,13 @@ class ClientCnxn {
         return r;
     }
 
-    Packet queuePacket(RequestHeader h, ReplyHeader r, Record request, Record response, AsyncCallback cb, String path, Object ctx) {
+    Packet queuePacket(RequestHeader h, ReplyHeader r, Record request, Record response, AsyncCallback cb, String path, Object ctx, WatchRegistration watchRegistration) {
         Packet packet = null;
         synchronized (outgoingQueue) {
             if (h.getType() != OpCode.ping && h.getType() != OpCode.auth) {
                 h.setXid(getXid());
             }
-            packet = new Packet(h, r, request, response, null);
+            packet = new Packet(h, r, request, response, null, watchRegistration);
             packet.cb = cb;
             packet.ctx = ctx;
             packet.path = path;
@@ -790,8 +797,7 @@ class ClientCnxn {
     public void addAuthInfo(String scheme, byte[] auth) {
         authInfo.add(new AuthData(scheme, auth));
         if (zooKeeper.state == States.CONNECTED) {
-            queuePacket(new RequestHeader(-4, OpCode.auth), null, new AuthPacket(0, scheme, auth), null, null, null, null);
+            queuePacket(new RequestHeader(-4, OpCode.auth), null, new AuthPacket(0, scheme, auth), null, null, null, null, null);
         }
     }
 }
-
