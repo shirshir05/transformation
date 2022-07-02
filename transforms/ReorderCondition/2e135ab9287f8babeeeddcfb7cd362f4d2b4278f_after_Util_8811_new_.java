@@ -164,6 +164,10 @@ public class Util {
             return false;
         // Check for a valid snapshot
         RandomAccessFile raf = new RandomAccessFile(f, "r");
+        // the snapshot should be atleast 10 bytes
+        if (raf.length() < 10) {
+            return false;
+        }
         try {
             raf.seek(raf.length() - 5);
             byte[] bytes = new byte[5];
@@ -171,7 +175,7 @@ public class Util {
             ByteBuffer bb = ByteBuffer.wrap(bytes);
             int len = bb.getInt();
             byte b = bb.get();
-            if (len != 1 || b != '/') {
+            if (len != 1 || '/' != b) {
                 LOG.info("Invalid snapshot " + f + " len = " + len + " byte = " + (b & 0xff));
                 return false;
             }
@@ -299,4 +303,3 @@ public class Util {
         return filelist;
     }
 }
-
