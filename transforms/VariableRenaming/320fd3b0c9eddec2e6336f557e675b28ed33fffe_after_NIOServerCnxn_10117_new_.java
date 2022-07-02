@@ -31,6 +31,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -85,16 +86,35 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
 
         HashSet<NIOServerCnxn> cnxns = new HashSet<NIOServerCnxn>();
 
+        HashMap<InetAddress, Set<NIOServerCnxn>> ipMap = new HashMap<InetAddress, Set<NIOServerCnxn>>();
+
         int outstandingLimit = 1;
 
+        int maxClientCnxns = 10;
+
         /**
-         * Create the factory, startup(zks) must be called subsequently.
-         * @param port listener port
+         * Construct a new server connection factory which will accept an unlimited number
+         * of concurrent connections from each client (up to the file descriptor
+         * limits of the operating system). startup(zks) must be called subsequently.
+         * @param port
          * @throws IOException
          */
         public Factory(int port) throws IOException {
+            this(port, 0);
+        }
+
+        /**
+         * Constructs a new server connection factory where the number of concurrent connections
+         * from a single IP address is limited to maxcc (or unlimited if 0).
+         * startup(zks) must be called subsequently.
+         * @param port - the port to listen on for connections.
+         * @param maxcc - the number of concurrent connections allowed from a single client.
+         * @throws IOException
+         */
+        public Factory(int port, int maxcc) throws IOException {
             super("NIOServerCxn.Factory:" + port);
             setDaemon(true);
+            maxClientCnxns = maxcc;
             this.ss = ServerSocketChannel.open();
             ss.socket().setReuseAddress(true);
             ss.socket().bind(new InetSocketAddress(port));
@@ -110,10 +130,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             }
         }
 
-        public void startup(ZooKeeperServer zks) throws IOException, InterruptedException {
+        public void startup(ZooKeeperServer var0) throws IOException, InterruptedException {
             start();
-            zks.startup();
-            setZooKeeperServer(zks);
+            var0.startup();
+            setZooKeeperServer(var0);
         }
 
         public void setZooKeeperServer(ZooKeeperServer zks) {
@@ -141,11 +161,27 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         private void addCnxn(NIOServerCnxn cnxn) {
             synchronized (cnxns) {
                 cnxns.add(cnxn);
+                synchronized (ipMap) {
+                    InetAddress addr = cnxn.sock.socket().getInetAddress();
+                    Set<NIOServerCnxn> s = ipMap.get(addr);
+                    if (s == null) {
+                        s = new HashSet<NIOServerCnxn>();
+                    }
+                    s.add(cnxn);
+                    ipMap.put(addr, s);
+                }
             }
         }
 
         protected NIOServerCnxn createConnection(SocketChannel sock, SelectionKey sk) throws IOException {
             return new NIOServerCnxn(zks, sock, sk, this);
+        }
+
+        private int getClientCnxnCount(InetAddress cl) {
+            Set<NIOServerCnxn> s = ipMap.get(cl);
+            if (s == null)
+                return 0;
+            return s.size();
         }
 
         public void run() {
@@ -161,11 +197,18 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
                     for (SelectionKey k : selectedList) {
                         if ((k.readyOps() & SelectionKey.OP_ACCEPT) != 0) {
                             SocketChannel sc = ((ServerSocketChannel) k.channel()).accept();
-                            sc.configureBlocking(false);
-                            SelectionKey sk = sc.register(selector, SelectionKey.OP_READ);
-                            NIOServerCnxn cnxn = createConnection(sc, sk);
-                            sk.attach(cnxn);
-                            addCnxn(cnxn);
+                            InetAddress ia = sc.socket().getInetAddress();
+                            int cnxncount = getClientCnxnCount(ia);
+                            if (maxClientCnxns > 0 && cnxncount >= maxClientCnxns) {
+                                LOG.warn("Too many connections from " + ia + " - max is " + maxClientCnxns);
+                                sc.close();
+                            } else {
+                                sc.configureBlocking(false);
+                                SelectionKey sk = sc.register(selector, SelectionKey.OP_READ);
+                                NIOServerCnxn cnxn = createConnection(sc, sk);
+                                sk.attach(cnxn);
+                                addCnxn(cnxn);
+                            }
                         } else if ((k.readyOps() & (SelectionKey.OP_READ | SelectionKey.OP_WRITE)) != 0) {
                             NIOServerCnxn c = (NIOServerCnxn) k.attachment();
                             c.doIO(k);
@@ -685,6 +728,10 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
             return;
         }
         closed = true;
+        synchronized (factory.ipMap) {
+            Set<NIOServerCnxn> s = factory.ipMap.get(sock.socket().getInetAddress());
+            s.remove(this);
+        }
         synchronized (factory.cnxns) {
             factory.cnxns.remove(this);
         }
@@ -885,4 +932,3 @@ public class NIOServerCnxn implements Watcher, ServerCnxn {
         return stats;
     }
 }
-
