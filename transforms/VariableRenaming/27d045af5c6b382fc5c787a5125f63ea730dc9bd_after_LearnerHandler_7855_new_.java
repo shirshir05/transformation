@@ -297,18 +297,42 @@ public class LearnerHandler extends Thread {
              * send a diff to the 
              */
             ReentrantReadWriteLock lock = leader.zk.getZKDatabase().getLogLock();
-            ReadLock rl = lock.readLock();
+            ReadLock var19 = lock.readLock();
             try {
-                rl.lock();
+                var19.lock();
                 final long maxCommittedLog = leader.zk.getZKDatabase().getmaxCommittedLog();
                 final long minCommittedLog = leader.zk.getZKDatabase().getminCommittedLog();
+                LOG.info("Synchronizing with Follower sid: " + this.sid + " maxCommittedLog =" + Long.toHexString(maxCommittedLog) + " minCommittedLog = " + Long.toHexString(minCommittedLog) + " peerLastZxid = " + Long.toHexString(peerLastZxid));
                 LinkedList<Proposal> proposals = leader.zk.getZKDatabase().getCommittedLog();
                 if (proposals.size() != 0) {
                     if ((maxCommittedLog >= peerLastZxid) && (minCommittedLog <= peerLastZxid)) {
-                        packetToSend = Leader.DIFF;
-                        zxidToSend = maxCommittedLog;
+                        // proposal Id.
+                        long prevProposalZxid = minCommittedLog;
+                        // whether to expect a trunc or a diff
+                        boolean firstPacket = true;
                         for (Proposal propose : proposals) {
-                            if (propose.packet.getZxid() > peerLastZxid) {
+                            // skip the proposals the peer already has
+                            if (propose.packet.getZxid() <= peerLastZxid) {
+                                prevProposalZxid = propose.packet.getZxid();
+                                continue;
+                            } else {
+                                // in case the follower has some proposals that the leader doesn't
+                                if (firstPacket) {
+                                    firstPacket = false;
+                                    // Does the peer have some proposals that the leader hasn't seen yet
+                                    if (prevProposalZxid < peerLastZxid) {
+                                        // send a trunc message before sending the diff
+                                        packetToSend = Leader.TRUNC;
+                                        LOG.info("Sending TRUNC");
+                                        zxidToSend = prevProposalZxid;
+                                        updates = zxidToSend;
+                                    } else {
+                                        // Just send the diff
+                                        packetToSend = Leader.DIFF;
+                                        LOG.info("Sending diff");
+                                        zxidToSend = maxCommittedLog;
+                                    }
+                                }
                                 queuePacket(propose.packet);
                                 QuorumPacket qcommit = new QuorumPacket(Leader.COMMIT, propose.packet.getZxid(), null, null);
                                 queuePacket(qcommit);
@@ -328,7 +352,7 @@ public class LearnerHandler extends Thread {
                     zxidToSend = leaderLastZxid;
                 }
             } finally {
-                rl.unlock();
+                var19.unlock();
             }
             QuorumPacket newLeaderQP = new QuorumPacket(Leader.NEWLEADER, leaderLastZxid, null, null);
             oa.writeRecord(newLeaderQP, "packet");
@@ -516,4 +540,3 @@ public class LearnerHandler extends Thread {
         return isAlive() && tickOfLastAck >= leader.self.tick - leader.self.syncLimit;
     }
 }
-
