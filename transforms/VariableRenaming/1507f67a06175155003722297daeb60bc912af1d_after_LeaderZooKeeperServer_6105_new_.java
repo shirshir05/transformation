@@ -53,9 +53,6 @@ public class LeaderZooKeeperServer extends QuorumZooKeeperServer {
      */
     LeaderZooKeeperServer(FileTxnSnapLog logFactory, QuorumPeer self, ZKDatabase zkDb) throws IOException {
         super(logFactory, self.tickTime, self.minSessionTimeout, self.maxSessionTimeout, zkDb, self);
-        int divisor = self.getQuorumSize() > 2 ? self.getQuorumSize() - 1 : 1;
-        globalOutstandingLimit = Integer.getInteger(GLOBAL_OUTSTANDING_LIMIT, 1000) / divisor;
-        LOG.info("Override {} to {}", GLOBAL_OUTSTANDING_LIMIT, globalOutstandingLimit);
     }
 
     public Leader getLeader() {
@@ -94,6 +91,14 @@ public class LeaderZooKeeperServer extends QuorumZooKeeperServer {
             containerManager.stop();
         }
         super.shutdown();
+    }
+
+    @Override
+    public int getGlobalOutstandingLimit() {
+        int divisor = self.getQuorumSize() > 2 ? self.getQuorumSize() - 1 : 1;
+        int var1 = super.getGlobalOutstandingLimit() / divisor;
+        LOG.info("Override {} to {}", GLOBAL_OUTSTANDING_LIMIT, var1);
+        return var1;
     }
 
     @Override
@@ -214,4 +219,3 @@ public class LeaderZooKeeperServer extends QuorumZooKeeperServer {
         }
     }
 }
-
