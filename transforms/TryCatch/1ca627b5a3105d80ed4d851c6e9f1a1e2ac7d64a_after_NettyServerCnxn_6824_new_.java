@@ -407,7 +407,11 @@ public class NettyServerCnxn extends ServerCnxn {
      * @param message the message bytes to process.
      */
     private void receiveMessage(ByteBuf message) {
-        checkIsInEventLoop("receiveMessage");
+        try {
+            checkIsInEventLoop("receiveMessage");
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
         try {
             while (message.isReadable() && !throttled.get()) {
                 if (bb != null) {
@@ -476,6 +480,8 @@ public class NettyServerCnxn extends ServerCnxn {
                         if (len < 0 || len > BinaryInputArchive.maxBuffer) {
                             throw new IOException("Len error " + len);
                         }
+                        // checkRequestSize will throw IOException if request is rejected
+                        zkServer.checkRequestSizeWhenReceivingMessage(len);
                         bb = ByteBuffer.allocate(len);
                     }
                 }
@@ -600,4 +606,3 @@ public class NettyServerCnxn extends ServerCnxn {
         return 0;
     }
 }
-
