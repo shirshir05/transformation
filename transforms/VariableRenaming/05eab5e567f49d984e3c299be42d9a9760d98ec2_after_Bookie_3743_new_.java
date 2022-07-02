@@ -6,9 +6,11 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.HashMap;
+import java.util.WeakHashMap;
 import java.util.LinkedList;
 import java.util.Random;
 import java.util.concurrent.LinkedBlockingQueue;
+import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.client.AddCallback;
 import org.apache.log4j.Logger;
 
@@ -26,6 +28,8 @@ public class Bookie extends Thread {
     final File journalDirectory;
 
     final File[] ledgerDirectories;
+
+    WeakHashMap<Long, ByteBuffer> masterKeys = new WeakHashMap<Long, ByteBuffer>();
 
     public static class NoLedgerException extends IOException {
 
@@ -76,6 +80,20 @@ public class Bookie extends Thread {
         synchronized (ledgers) {
             handle.decRef();
         }
+    }
+
+    private LedgerDescriptor getHandle(long ledgerId, boolean readonly, byte[] masterKey) throws IOException {
+        LedgerDescriptor handle = null;
+        synchronized (ledgers) {
+            handle = ledgers.get(ledgerId);
+            if (handle == null) {
+                handle = createHandle(ledgerId, readonly);
+                ledgers.put(ledgerId, handle);
+                masterKeys.put(ledgerId, ByteBuffer.wrap(masterKey));
+            }
+            handle.incRef();
+        }
+        return handle;
     }
 
     private LedgerDescriptor getHandle(long ledgerId, boolean readonly) throws IOException {
@@ -246,9 +264,12 @@ public class Bookie extends Thread {
         }
     }
 
-    public void addEntry(ByteBuffer entry, AddCallback cb, Object ctx) throws IOException {
+    public void addEntry(ByteBuffer entry, AddCallback var1, Object ctx, byte[] masterKey) throws IOException, BookieException {
         long ledgerId = entry.getLong();
-        LedgerDescriptor handle = getHandle(ledgerId, false);
+        LedgerDescriptor handle = getHandle(ledgerId, false, masterKey);
+        if (!masterKeys.get(ledgerId).equals(ByteBuffer.wrap(masterKey))) {
+            throw BookieException.create(BookieException.Code.UnauthorizedAccessException);
+        }
         try {
             entry.rewind();
             long entryId = handle.addEntry(entry);
@@ -256,7 +277,7 @@ public class Bookie extends Thread {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Adding " + entryId + "@" + ledgerId);
             }
-            queue.add(new QueueEntry(entry, ledgerId, entryId, cb, ctx));
+            queue.add(new QueueEntry(entry, ledgerId, entryId, var1, ctx));
         } finally {
             putHandle(handle);
         }
@@ -302,7 +323,7 @@ public class Bookie extends Thread {
      * @throws IOException
      * @throws InterruptedException
      */
-    public static void main(String[] args) throws IOException, InterruptedException {
+    public static void main(String[] args) throws IOException, InterruptedException, BookieException {
         Bookie b = new Bookie(new File("/tmp"), new File[] { new File("/tmp") });
         CounterCallback cb = new CounterCallback();
         long start = System.currentTimeMillis();
@@ -313,11 +334,10 @@ public class Bookie extends Thread {
             buff.limit(1024);
             buff.position(0);
             cb.incCount();
-            b.addEntry(buff, cb, null);
+            b.addEntry(buff, cb, null, new byte[0]);
         }
         cb.waitZero();
         long end = System.currentTimeMillis();
         System.out.println("Took " + (end - start) + "ms");
     }
 }
-
