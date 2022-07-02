@@ -132,11 +132,12 @@ public class FileTxnLog implements TxnLog {
      * append an entry to the transaction log
      * @param hdr the header of the transaction
      * @param txn the transaction part of the entry
+     * returns true iff something appended, otw false
      */
-    public synchronized void append(TxnHeader hdr, Record txn) throws IOException {
+    public synchronized boolean append(TxnHeader hdr, Record txn) throws IOException {
         if (hdr != null) {
             if (hdr.getZxid() <= lastZxidSeen) {
-                LOG.warn("Current zxid " + hdr.getZxid() + " is <= " + lastZxidSeen + " for " + hdr.getType());
+                LOG.warn(" is <= " + "Current zxid " + hdr.getZxid() + lastZxidSeen + " for " + hdr.getType());
             }
             if (logStream == null) {
                 logFileWrite = new File(logDir, ("log." + Long.toHexString(hdr.getZxid())));
@@ -157,7 +158,9 @@ public class FileTxnLog implements TxnLog {
             crc.update(buf, 0, buf.length);
             oa.writeLong(crc.getValue(), "txnEntryCRC");
             Util.writeTxnBytes(oa, buf);
+            return true;
         }
+        return false;
     }
 
     /**
@@ -540,4 +543,3 @@ public class FileTxnLog implements TxnLog {
         }
     }
 }
-
