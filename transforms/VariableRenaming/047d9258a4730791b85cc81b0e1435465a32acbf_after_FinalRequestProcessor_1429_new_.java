@@ -69,7 +69,7 @@ public class FinalRequestProcessor implements RequestProcessor {
             traceMask = ZooLog.SERVER_PING_TRACE_MASK;
         }
         ZooLog.logRequest('E', request, "", traceMask);
-        ProcessTxnResult var2 = null;
+        ProcessTxnResult rc = null;
         synchronized (zks.outstandingChanges) {
             while (!zks.outstandingChanges.isEmpty() && zks.outstandingChanges.get(0).zxid <= request.zxid) {
                 if (zks.outstandingChanges.get(0).zxid < request.zxid) {
@@ -78,11 +78,11 @@ public class FinalRequestProcessor implements RequestProcessor {
                 zks.outstandingChanges.remove(0);
             }
             if (request.hdr != null) {
-                var2 = zks.dataTree.processTxn(request.hdr, request.txn);
+                rc = zks.dataTree.processTxn(request.hdr, request.txn);
                 if (request.type == OpCode.createSession) {
                     if (request.txn instanceof CreateSessionTxn) {
-                        CreateSessionTxn cst = (CreateSessionTxn) request.txn;
-                        zks.sessionTracker.addSession(request.sessionId, cst.getTimeOut());
+                        CreateSessionTxn var3 = (CreateSessionTxn) request.txn;
+                        zks.sessionTracker.addSession(request.sessionId, var3.getTimeOut());
                     } else {
                         ZooLog.logWarn("*****>>>>> Got " + request.txn.getClass() + " " + request.txn.toString());
                     }
@@ -112,22 +112,22 @@ public class FinalRequestProcessor implements RequestProcessor {
                     request.cnxn.finishSessionInit(true);
                     return;
                 case OpCode.create:
-                    rsp = new CreateResponse(var2.path);
-                    err = var2.err;
+                    rsp = new CreateResponse(rc.path);
+                    err = rc.err;
                     break;
                 case OpCode.delete:
-                    err = var2.err;
+                    err = rc.err;
                     break;
                 case OpCode.setData:
-                    rsp = new SetDataResponse(var2.stat);
-                    err = var2.err;
+                    rsp = new SetDataResponse(rc.stat);
+                    err = rc.err;
                     break;
                 case OpCode.setACL:
-                    rsp = new SetACLResponse(var2.stat);
-                    err = var2.err;
+                    rsp = new SetACLResponse(rc.stat);
+                    err = rc.err;
                     break;
                 case OpCode.closeSession:
-                    err = var2.err;
+                    err = rc.err;
                     break;
                 case OpCode.exists:
                     // TODO we need to figure out the security requirement for this!
