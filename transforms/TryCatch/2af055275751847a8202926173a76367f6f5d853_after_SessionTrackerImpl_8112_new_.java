@@ -37,6 +37,10 @@ public class SessionTrackerImpl extends Thread implements SessionTracker {
 
     ConcurrentHashMap<Long, Integer> sessionsWithTimeout;
 
+    long nextSessionId = 0;
+
+    long serverId;
+
     long nextExpirationTime;
 
     int expirationInterval;
@@ -53,6 +57,17 @@ public class SessionTrackerImpl extends Thread implements SessionTracker {
         long sessionId;
     }
 
+    public static long initializeNextSession(long id) {
+        long nextSid = 0;
+        try {
+            nextSid = (System.currentTimeMillis() << 24) >> 8;
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        nextSid = nextSid | (id << 56);
+        return nextSid;
+    }
+
     static class SessionSet {
 
         long expireTime;
@@ -67,12 +82,14 @@ public class SessionTrackerImpl extends Thread implements SessionTracker {
         return (time / expirationInterval + 1) * expirationInterval;
     }
 
-    public SessionTrackerImpl(SessionExpirer expirer, ConcurrentHashMap<Long, Integer> sessionsWithTimeout, int tickTime) {
+    public SessionTrackerImpl(SessionExpirer expirer, ConcurrentHashMap<Long, Integer> sessionsWithTimeout, int tickTime, long sid) {
         super("SessionTracker");
         this.expirer = expirer;
         this.expirationInterval = tickTime;
         this.sessionsWithTimeout = sessionsWithTimeout;
         nextExpirationTime = roundToInterval(System.currentTimeMillis());
+        this.serverId = sid;
+        this.nextSessionId = initializeNextSession(sid);
         for (long id : sessionsWithTimeout.keySet()) {
             addSession(id, sessionsWithTimeout.get(id));
         }
@@ -166,8 +183,6 @@ public class SessionTrackerImpl extends Thread implements SessionTracker {
         ZooLog.logTextTraceMessage("Shutdown SessionTrackerImpl!", ZooLog.textTraceMask);
     }
 
-    long nextSessionId = System.currentTimeMillis() << 24;
-
     synchronized public long createSession(int sessionTimeout) {
         addSession(nextSessionId, sessionTimeout);
         return nextSessionId++;
@@ -191,4 +206,3 @@ public class SessionTrackerImpl extends Thread implements SessionTracker {
         }
     }
 }
-
