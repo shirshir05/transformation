@@ -26,6 +26,8 @@ import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.RequestProcessor;
 import org.apache.zookeeper.server.ZooKeeperServer;
 import org.apache.zookeeper.server.ZooTrace;
+import org.apache.zookeeper.server.RequestProcessor.RequestProcessorException;
+import org.apache.zookeeper.server.quorum.Leader.XidRolloverException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -80,8 +82,8 @@ public class ReadOnlyRequestProcessor extends Thread implements RequestProcessor
                         ReplyHeader hdr = new ReplyHeader(request.cxid, zks.getZKDatabase().getDataTreeLastProcessedZxid(), Code.NOTREADONLY.intValue());
                         try {
                             request.cnxn.sendResponse(hdr, null, null);
-                        } catch (IOException e) {
-                            LOG.error("IO exception while sending response", e);
+                        } catch (IOException var3) {
+                            LOG.error("IO exception while sending response", var3);
                         }
                         continue;
                 }
@@ -90,8 +92,15 @@ public class ReadOnlyRequestProcessor extends Thread implements RequestProcessor
                     nextProcessor.processRequest(request);
                 }
             }
-        } catch (InterruptedException e) {
-            LOG.error("Unexpected interruption", e);
+        } catch (InterruptedException var3) {
+            LOG.error("Unexpected interruption", var3);
+        } catch (RequestProcessorException var3) {
+            if (var3.getCause() instanceof XidRolloverException) {
+                LOG.info(var3.getCause().getMessage());
+            }
+            LOG.error("Unexpected exception", var3);
+        } catch (Exception var3) {
+            LOG.error("Unexpected exception", var3);
         }
         LOG.info("ReadOnlyRequestProcessor exited loop!");
     }
@@ -111,4 +120,3 @@ public class ReadOnlyRequestProcessor extends Thread implements RequestProcessor
         nextProcessor.shutdown();
     }
 }
-
