@@ -302,13 +302,37 @@ public class LearnerHandler extends Thread {
                 rl.lock();
                 final long maxCommittedLog = leader.zk.getZKDatabase().getmaxCommittedLog();
                 final long minCommittedLog = leader.zk.getZKDatabase().getminCommittedLog();
+                LOG.info("Synchronizing with Follower sid: " + this.sid + " maxCommittedLog =" + Long.toHexString(maxCommittedLog) + " minCommittedLog = " + Long.toHexString(minCommittedLog) + " peerLastZxid = " + Long.toHexString(peerLastZxid));
                 LinkedList<Proposal> proposals = leader.zk.getZKDatabase().getCommittedLog();
                 if (proposals.size() != 0) {
                     if ((maxCommittedLog >= peerLastZxid) && (minCommittedLog <= peerLastZxid)) {
-                        packetToSend = Leader.DIFF;
-                        zxidToSend = maxCommittedLog;
+                        // proposal Id.
+                        long prevProposalZxid = minCommittedLog;
+                        // whether to expect a trunc or a diff
+                        boolean firstPacket = true;
                         for (Proposal propose : proposals) {
-                            if (propose.packet.getZxid() > peerLastZxid) {
+                            // skip the proposals the peer already has
+                            if (propose.packet.getZxid() <= peerLastZxid) {
+                                prevProposalZxid = propose.packet.getZxid();
+                                continue;
+                            } else {
+                                // in case the follower has some proposals that the leader doesn't
+                                if (firstPacket) {
+                                    firstPacket = false;
+                                    // Does the peer have some proposals that the leader hasn't seen yet
+                                    if (prevProposalZxid < peerLastZxid) {
+                                        // send a trunc message before sending the diff
+                                        packetToSend = Leader.TRUNC;
+                                        LOG.info("Sending TRUNC");
+                                        zxidToSend = prevProposalZxid;
+                                        updates = zxidToSend;
+                                    } else {
+                                        // Just send the diff
+                                        packetToSend = Leader.DIFF;
+                                        LOG.info("Sending diff");
+                                        zxidToSend = maxCommittedLog;
+                                    }
+                                }
                                 queuePacket(propose.packet);
                                 QuorumPacket qcommit = new QuorumPacket(Leader.COMMIT, propose.packet.getZxid(), null, null);
                                 queuePacket(qcommit);
@@ -392,7 +416,7 @@ public class LearnerHandler extends Thread {
                     ZooTrace.logQuorumPacket(LOG, traceMask, 'i', qp);
                 }
                 tickOfLastAck = leader.self.tick;
-                ByteBuffer bb;
+                ByteBuffer var30;
                 long sessionId;
                 int cxid;
                 int type;
@@ -440,16 +464,16 @@ public class LearnerHandler extends Thread {
                         queuedPackets.add(qp);
                         break;
                     case Leader.REQUEST:
-                        bb = ByteBuffer.wrap(qp.getData());
-                        sessionId = bb.getLong();
-                        cxid = bb.getInt();
-                        type = bb.getInt();
-                        bb = bb.slice();
+                        var30 = ByteBuffer.wrap(qp.getData());
+                        sessionId = var30.getLong();
+                        cxid = var30.getInt();
+                        type = var30.getInt();
+                        var30 = var30.slice();
                         Request si;
                         if (type == OpCode.sync) {
-                            si = new LearnerSyncRequest(this, sessionId, cxid, type, bb, qp.getAuthinfo());
+                            si = new LearnerSyncRequest(this, sessionId, cxid, type, var30, qp.getAuthinfo());
                         } else {
-                            si = new Request(null, sessionId, cxid, type, bb, qp.getAuthinfo());
+                            si = new Request(null, sessionId, cxid, type, var30, qp.getAuthinfo());
                         }
                         si.setOwner(this);
                         leader.zk.submitRequest(si);
@@ -516,4 +540,3 @@ public class LearnerHandler extends Thread {
         return isAlive() && tickOfLastAck >= leader.self.tick - leader.self.syncLimit;
     }
 }
-
