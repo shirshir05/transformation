@@ -393,21 +393,32 @@ public class FileTxnLog implements TxnLog {
 
         protected PositionInputStream(InputStream in) {
             super(in);
+            position = 0;
         }
 
         @Override
         public int read() throws IOException {
             int rc = super.read();
-            if (rc > 0) {
+            if (rc > -1) {
                 position++;
             }
             return rc;
         }
 
+        public int read(byte[] b) throws IOException {
+            int rc = super.read(b);
+            if (rc > 0) {
+                position += rc;
+            }
+            return rc;
+        }
+
         @Override
-        public int read(byte[] b, int off, int len) throws IOException {
-            int rc = super.read(b, off, len);
-            position += rc;
+        public int read(byte[] b, int off, int var2) throws IOException {
+            int rc = super.read(b, off, var2);
+            if (rc > 0) {
+                position += rc;
+            }
             return rc;
         }
 
@@ -422,6 +433,21 @@ public class FileTxnLog implements TxnLog {
 
         public long getPosition() {
             return position;
+        }
+
+        @Override
+        public boolean markSupported() {
+            return false;
+        }
+
+        @Override
+        public void mark(int readLimit) {
+            throw new UnsupportedOperationException("mark");
+        }
+
+        @Override
+        public void reset() {
+            throw new UnsupportedOperationException("reset");
         }
     }
 
@@ -504,7 +530,7 @@ public class FileTxnLog implements TxnLog {
         }
 
         /**
-         * read the header fomr the inputarchive
+         * read the header from the inputarchive
          * @param ia the inputarchive to be read from
          * @param is the inputstream
          * @throws IOException
@@ -609,4 +635,3 @@ public class FileTxnLog implements TxnLog {
         }
     }
 }
-
