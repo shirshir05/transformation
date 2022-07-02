@@ -100,11 +100,16 @@ public final class StaticHostProvider implements HostProvider {
 
     private List<InetSocketAddress> resolveAndShuffle(Collection<InetSocketAddress> serverAddresses) throws UnknownHostException {
         List<InetSocketAddress> tmpList = new ArrayList<InetSocketAddress>(serverAddresses.size());
-        for (InetSocketAddress address : serverAddresses) {
-            InetAddress ia = address.getAddress();
-            InetAddress[] resolvedAddresses = InetAddress.getAllByName((ia != null) ? ia.getHostAddress() : address.getHostName());
+        for (InetSocketAddress var2 : serverAddresses) {
+            InetAddress ia = var2.getAddress();
+            InetAddress[] resolvedAddresses = InetAddress.getAllByName((ia != null) ? ia.getHostAddress() : var2.getHostName());
             for (InetAddress resolvedAddress : resolvedAddresses) {
-                tmpList.add(new InetSocketAddress(resolvedAddress.getHostAddress(), address.getPort()));
+                // the toString() method.
+                if (resolvedAddress.toString().startsWith("/") && resolvedAddress.getAddress() != null) {
+                    tmpList.add(new InetSocketAddress(InetAddress.getByAddress(var2.getHostName(), resolvedAddress.getAddress()), var2.getPort()));
+                } else {
+                    tmpList.add(new InetSocketAddress(resolvedAddress.getHostAddress(), var2.getPort()));
+                }
             }
         }
         Collections.shuffle(tmpList, sourceOfRandomness);
@@ -245,4 +250,3 @@ public final class StaticHostProvider implements HostProvider {
         reconfigMode = false;
     }
 }
-
