@@ -56,8 +56,7 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
      * @throws InterruptedException
      * @throws IOException
      */
-    boolean doIO(List<Packet> pendingQueue, LinkedList<Packet> outgoingQueue) throws InterruptedException, IOException {
-        boolean packetReceived = false;
+    void doIO(List<Packet> pendingQueue, LinkedList<Packet> var1) throws InterruptedException, IOException {
         SocketChannel sock = (SocketChannel) sockKey.channel();
         if (sock == null) {
             throw new IOException("Socket is null!");
@@ -75,42 +74,41 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
                 } else if (!initialized) {
                     readConnectResult();
                     enableRead();
-                    if (!outgoingQueue.isEmpty()) {
+                    if (!var1.isEmpty()) {
                         enableWrite();
                     }
                     lenBuffer.clear();
                     incomingBuffer = lenBuffer;
-                    packetReceived = true;
+                    updateLastHeard();
                     initialized = true;
                 } else {
                     sendThread.readResponse(incomingBuffer);
                     lenBuffer.clear();
                     incomingBuffer = lenBuffer;
-                    packetReceived = true;
+                    updateLastHeard();
                 }
             }
         }
         if (sockKey.isWritable()) {
-            synchronized (outgoingQueue) {
-                if (!outgoingQueue.isEmpty()) {
-                    ByteBuffer pbb = outgoingQueue.getFirst().bb;
+            LinkedList<Packet> pending = new LinkedList<Packet>();
+            synchronized (var1) {
+                if (!var1.isEmpty()) {
+                    updateLastSend();
+                    ByteBuffer pbb = var1.getFirst().bb;
                     sock.write(pbb);
                     if (!pbb.hasRemaining()) {
                         sentCount++;
-                        Packet p = outgoingQueue.removeFirst();
+                        Packet p = var1.removeFirst();
                         if (p.requestHeader != null && p.requestHeader.getType() != OpCode.ping && p.requestHeader.getType() != OpCode.auth) {
-                            pendingQueue.add(p);
+                            pending.add(p);
                         }
                     }
                 }
             }
+            synchronized (pendingQueue) {
+                pendingQueue.addAll(pending);
+            }
         }
-        if (outgoingQueue.isEmpty()) {
-            disableWrite();
-        } else {
-            enableWrite();
-        }
-        return packetReceived;
     }
 
     @Override
@@ -245,20 +243,16 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
                     sendThread.primeConnection();
                 }
             } else if ((k.readyOps() & (SelectionKey.OP_READ | SelectionKey.OP_WRITE)) != 0) {
-                if (outgoingQueue.size() > 0) {
-                    // as if we do the send now.
-                    updateLastSend();
-                }
-                if (doIO(pendingQueue, outgoingQueue)) {
-                    updateLastHeard();
-                }
+                doIO(pendingQueue, outgoingQueue);
             }
         }
         if (sendThread.getZkState().isConnected()) {
-            if (outgoingQueue.size() > 0) {
-                enableWrite();
-            } else {
-                disableWrite();
+            synchronized (outgoingQueue) {
+                if (!outgoingQueue.isEmpty()) {
+                    enableWrite();
+                } else {
+                    disableWrite();
+                }
             }
         }
         selected.clear();
@@ -298,4 +292,3 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
         sockKey.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
     }
 }
-
