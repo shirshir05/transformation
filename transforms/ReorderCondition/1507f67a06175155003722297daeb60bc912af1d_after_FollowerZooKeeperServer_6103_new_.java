@@ -56,9 +56,6 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
     FollowerZooKeeperServer(FileTxnSnapLog logFactory, QuorumPeer self, ZKDatabase zkDb) throws IOException {
         super(logFactory, self.tickTime, self.minSessionTimeout, self.maxSessionTimeout, zkDb, self);
         this.pendingSyncs = new ConcurrentLinkedQueue<Request>();
-        int divisor = self.getQuorumSize() > 2 ? self.getQuorumSize() - 1 : 1;
-        globalOutstandingLimit = Integer.getInteger(GLOBAL_OUTSTANDING_LIMIT, 1000) / divisor;
-        LOG.info("Override {} to {}", GLOBAL_OUTSTANDING_LIMIT, globalOutstandingLimit);
     }
 
     public Follower getFollower() {
@@ -116,6 +113,14 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
     }
 
     @Override
+    public int getGlobalOutstandingLimit() {
+        int divisor = 2 < self.getQuorumSize() ? self.getQuorumSize() - 1 : 1;
+        int globalOutstandingLimit = super.getGlobalOutstandingLimit() / divisor;
+        LOG.info("Override {} to {}", GLOBAL_OUTSTANDING_LIMIT, globalOutstandingLimit);
+        return globalOutstandingLimit;
+    }
+
+    @Override
     public String getState() {
         return "follower";
     }
@@ -125,4 +130,3 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         return getFollower();
     }
 }
-
