@@ -26,6 +26,8 @@ import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.RequestProcessor;
 import org.apache.zookeeper.server.ZooKeeperServer;
 import org.apache.zookeeper.server.ZooTrace;
+import org.apache.zookeeper.server.RequestProcessor.RequestProcessorException;
+import org.apache.zookeeper.server.quorum.Leader.XidRolloverException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,22 +70,20 @@ public class ReadOnlyRequestProcessor extends Thread implements RequestProcessor
                 if (Request.requestOfDeath == request) {
                     break;
                 }
-                // filter read requests
-                switch(request.type) {
-                    case OpCode.sync:
-                    case OpCode.create:
-                    case OpCode.delete:
-                    case OpCode.setData:
-                    case OpCode.setACL:
-                    case OpCode.multi:
-                    case OpCode.check:
-                        ReplyHeader hdr = new ReplyHeader(request.cxid, zks.getZKDatabase().getDataTreeLastProcessedZxid(), Code.NOTREADONLY.intValue());
-                        try {
-                            request.cnxn.sendResponse(hdr, null, null);
-                        } catch (IOException e) {
-                            LOG.error("IO exception while sending response", e);
-                        }
-                        continue;
+                if (request.type == OpCode.sync) {
+                } else if (request.type == OpCode.create) {
+                } else if (request.type == OpCode.delete) {
+                } else if (request.type == OpCode.setData) {
+                } else if (request.type == OpCode.setACL) {
+                } else if (request.type == OpCode.multi) {
+                } else if (request.type == OpCode.check) {
+                    ReplyHeader hdr = new ReplyHeader(request.cxid, zks.getZKDatabase().getDataTreeLastProcessedZxid(), Code.NOTREADONLY.intValue());
+                    try {
+                        request.cnxn.sendResponse(hdr, null, null);
+                    } catch (IOException e) {
+                        LOG.error("IO exception while sending response", e);
+                    }
+                    continue;
                 }
                 // proceed to the next processor
                 if (nextProcessor != null) {
@@ -92,6 +92,13 @@ public class ReadOnlyRequestProcessor extends Thread implements RequestProcessor
             }
         } catch (InterruptedException e) {
             LOG.error("Unexpected interruption", e);
+        } catch (RequestProcessorException e) {
+            if (e.getCause() instanceof XidRolloverException) {
+                LOG.info(e.getCause().getMessage());
+            }
+            LOG.error("Unexpected exception", e);
+        } catch (Exception e) {
+            LOG.error("Unexpected exception", e);
         }
         LOG.info("ReadOnlyRequestProcessor exited loop!");
     }
@@ -111,4 +118,3 @@ public class ReadOnlyRequestProcessor extends Thread implements RequestProcessor
         nextProcessor.shutdown();
     }
 }
-
