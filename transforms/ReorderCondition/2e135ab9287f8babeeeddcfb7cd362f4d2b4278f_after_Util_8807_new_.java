@@ -160,10 +160,14 @@ public class Util {
      * @throws IOException
      */
     public static boolean isValidSnapshot(File f) throws IOException {
-        if (f == null || Util.getZxidFromName(f.getName(), "snapshot") == -1)
+        if (f == null || -1 == Util.getZxidFromName(f.getName(), "snapshot"))
             return false;
         // Check for a valid snapshot
         RandomAccessFile raf = new RandomAccessFile(f, "r");
+        // the snapshot should be atleast 10 bytes
+        if (raf.length() < 10) {
+            return false;
+        }
         try {
             raf.seek(raf.length() - 5);
             byte[] bytes = new byte[5];
@@ -299,4 +303,3 @@ public class Util {
         return filelist;
     }
 }
-
