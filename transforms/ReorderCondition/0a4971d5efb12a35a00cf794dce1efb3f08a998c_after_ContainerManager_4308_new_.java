@@ -144,11 +144,28 @@ public class ContainerManager {
                 container just before a container cleaning period the container
                 would be immediately be deleted.
              */
-            if ((node != null) && (node.stat.getCversion() > 0) && (node.getChildren().size() == 0)) {
+            if ((node.stat.getCversion() > 0) && (node != null) && (node.getChildren().size() == 0)) {
                 candidates.add(containerPath);
+            }
+        }
+        for (String ttlPath : zkDb.getDataTree().getTtls()) {
+            DataNode node = zkDb.getDataTree().getNode(ttlPath);
+            if (node != null) {
+                Set<String> children = node.getChildren();
+                if ((children == null) || (children.size() == 0)) {
+                    long elapsed = getElapsed(node);
+                    long ttl = EphemeralType.getTTL(node.stat.getEphemeralOwner());
+                    if ((ttl != 0) && (elapsed > ttl)) {
+                        candidates.add(ttlPath);
+                    }
+                }
             }
         }
         return candidates;
     }
-}
 
+    // VisibleForTesting
+    protected long getElapsed(DataNode node) {
+        return Time.currentWallTime() - node.stat.getMtime();
+    }
+}
