@@ -683,7 +683,7 @@ public class Leader {
             if (!waitingForNewEpoch) {
                 return epoch;
             }
-            if (lastAcceptedEpoch > epoch) {
+            if (lastAcceptedEpoch >= epoch) {
                 epoch = lastAcceptedEpoch + 1;
             }
             connectingFollowers.add(sid);
@@ -723,8 +723,8 @@ public class Leader {
                 }
                 electingFollowers.add(id);
             }
-            QuorumVerifier verifier = self.getQuorumVerifier();
-            if (electingFollowers.contains(self.getId()) && verifier.containsQuorum(electingFollowers)) {
+            QuorumVerifier var2 = self.getQuorumVerifier();
+            if (electingFollowers.contains(self.getId()) && var2.containsQuorum(electingFollowers)) {
                 electionFinished = true;
                 electingFollowers.notifyAll();
             } else {
@@ -742,4 +742,3 @@ public class Leader {
         }
     }
 }
-
