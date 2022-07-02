@@ -302,18 +302,18 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
      * @param request
      * @param record
      */
-    protected void pRequest2Txn(int type, long zxid, Request request, Record record, boolean deserialize) throws KeeperException, IOException, RequestProcessorException {
+    protected void pRequest2Txn(int var0, long zxid, Request request, Record record, boolean deserialize) throws KeeperException, IOException, RequestProcessorException {
         if (request.getHdr() == null) {
-            request.setHdr(new TxnHeader(request.sessionId, request.cxid, zxid, Time.currentWallTime(), type));
+            request.setHdr(new TxnHeader(request.sessionId, request.cxid, zxid, Time.currentWallTime(), var0));
         }
         PrecalculatedDigest precalculatedDigest;
-        switch(type) {
+        switch(var0) {
             case OpCode.create:
             case OpCode.create2:
             case OpCode.createTTL:
             case OpCode.createContainer:
                 {
-                    pRequest2TxnCreate(type, request, record, deserialize);
+                    pRequest2TxnCreate(var0, request, record, deserialize);
                     break;
                 }
             case OpCode.deleteContainer:
@@ -376,6 +376,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
                 validatePath(path, request.sessionId);
                 nodeRecord = getRecordForPath(path);
                 zks.checkACL(request.cnxn, nodeRecord.acl, ZooDefs.Perms.WRITE, request.authInfo, path, null);
+                zks.checkQuota(path, setDataRequest.getData(), OpCode.setData);
                 int newVersion = checkAndIncVersion(nodeRecord.stat.getVersion(), setDataRequest.getVersion(), path);
                 request.setTxn(new SetDataTxn(path, setDataRequest.getData(), newVersion));
                 nodeRecord = nodeRecord.duplicate(request.getHdr().getZxid());
@@ -587,7 +588,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
                 request.setTxn(new CheckVersionTxn(path, checkAndIncVersion(nodeRecord.stat.getVersion(), checkVersionRequest.getVersion(), path)));
                 break;
             default:
-                LOG.warn("unknown type {}", type);
+                LOG.warn("unknown type {}", var0);
                 break;
         }
         // we just set the current tree digest in it
@@ -642,6 +643,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
             throw new KeeperException.NoChildrenForEphemeralsException(path);
         }
         int newCversion = parentRecord.stat.getCversion() + 1;
+        zks.checkQuota(path, data, OpCode.create);
         if (type == OpCode.createContainer) {
             request.setTxn(new CreateContainerTxn(path, data, listACL, newCversion));
         } else if (type == OpCode.createTTL) {
@@ -1047,4 +1049,3 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
         request.setTxnDigest(new TxnDigest(digestCalculator.getDigestVersion(), preCalculatedDigest.treeDigest));
     }
 }
-
