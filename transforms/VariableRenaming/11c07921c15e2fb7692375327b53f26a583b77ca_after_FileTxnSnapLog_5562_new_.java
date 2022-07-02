@@ -106,7 +106,7 @@ public class FileTxnSnapLog {
         // See ZOOKEEPER-1161 for more details
         boolean enableAutocreate = Boolean.parseBoolean(System.getProperty(ZOOKEEPER_DATADIR_AUTOCREATE, ZOOKEEPER_DATADIR_AUTOCREATE_DEFAULT));
         trustEmptySnapshot = Boolean.getBoolean(ZOOKEEPER_SNAPSHOT_TRUST_EMPTY);
-        LOG.info(ZOOKEEPER_SNAPSHOT_TRUST_EMPTY + " : " + trustEmptySnapshot);
+        LOG.info("{} : {}", ZOOKEEPER_SNAPSHOT_TRUST_EMPTY, trustEmptySnapshot);
         if (!this.dataDir.exists()) {
             if (!enableAutocreate) {
                 throw new DatadirException(String.format("Missing data directory %s, automatic data directory creation is disabled (%s is false)." + " Please create this directory manually.", this.dataDir, ZOOKEEPER_DATADIR_AUTOCREATE));
@@ -207,7 +207,7 @@ public class FileTxnSnapLog {
      * @return the highest zxid restored
      * @throws IOException
      */
-    public long restore(DataTree dt, Map<Long, Integer> sessions, PlayBackListener listener) throws IOException {
+    public long restore(DataTree dt, Map<Long, Integer> sessions, PlayBackListener var2) throws IOException {
         long snapLoadingStartTime = Time.currentElapsedTime();
         long deserializeResult = snapLog.deserialize(dt, sessions);
         ServerMetrics.getMetrics().STARTUP_SNAP_LOAD_TIME.add(Time.currentElapsedTime() - snapLoadingStartTime);
@@ -228,7 +228,7 @@ public class FileTxnSnapLog {
                 if (!trustEmptySnapshot) {
                     throw new IOException(EMPTY_SNAPSHOT_WARNING + "Something is broken!");
                 } else {
-                    LOG.warn(EMPTY_SNAPSHOT_WARNING + "This should only be allowed during upgrading.");
+                    LOG.warn("{}This should only be allowed during upgrading.", EMPTY_SNAPSHOT_WARNING);
                 }
             }
             if (trustEmptyDB) {
@@ -244,11 +244,11 @@ public class FileTxnSnapLog {
                 return -1L;
             }
         }
-        long highestZxid = fastForwardFromEdits(dt, sessions, listener);
+        long highestZxid = fastForwardFromEdits(dt, sessions, var2);
         // zxid or that txn is missing
         DataTree.ZxidDigest snapshotZxidDigest = dt.getDigestFromLoadedSnapshot();
         if (snapshotZxidDigest != null) {
-            LOG.warn("Highest txn zxid 0x{} is not covering the snapshot " + "digest zxid 0x{}, which might lead to inconsistent state", Long.toHexString(highestZxid), Long.toHexString(snapshotZxidDigest.getZxid()));
+            LOG.warn("Highest txn zxid 0x{} is not covering the snapshot digest zxid 0x{}, " + "which might lead to inconsistent state", Long.toHexString(highestZxid), Long.toHexString(snapshotZxidDigest.getZxid()));
         }
         return highestZxid;
     }
@@ -402,9 +402,9 @@ public class FileTxnSnapLog {
                  * Doing so will eventually result in valid snapshots being
                  * removed during cleanup. */
                 if (snapshotFile.delete()) {
-                    LOG.info("Deleted empty snapshot file: " + snapshotFile.getAbsolutePath());
+                    LOG.info("Deleted empty snapshot file: {}", snapshotFile.getAbsolutePath());
                 } else {
-                    LOG.warn("Could not delete empty snapshot file: " + snapshotFile.getAbsolutePath());
+                    LOG.warn("Could not delete empty snapshot file: {}", snapshotFile.getAbsolutePath());
                 }
             } else {
             }
@@ -547,4 +547,3 @@ public class FileTxnSnapLog {
         return txnLog.getTotalLogSize();
     }
 }
-
