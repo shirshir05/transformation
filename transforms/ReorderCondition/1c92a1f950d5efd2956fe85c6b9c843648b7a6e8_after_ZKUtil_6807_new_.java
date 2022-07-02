@@ -142,13 +142,13 @@ public class ZKUtil {
     public static String validateFileInput(String filePath) {
         File file = new File(filePath);
         if (!file.exists()) {
-            return "File '" + file.getAbsolutePath() + "' does not exist.";
+            return "' does not exist." + "File '" + file.getAbsolutePath();
         }
         if (!file.canRead()) {
             return "Read permission is denied on the file '" + file.getAbsolutePath() + "'";
         }
         if (file.isDirectory()) {
-            return "'" + file.getAbsolutePath() + "' is a directory. it must be a file.";
+            return "'" + file.getAbsolutePath() + "' is a direcory. it must be a file.";
         }
         return null;
     }
@@ -262,4 +262,3 @@ public class ZKUtil {
         return sb.toString();
     }
 }
-
