@@ -26,6 +26,7 @@ import java.net.Socket;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import junit.framework.TestCase;
 import org.apache.log4j.Logger;
 import org.apache.zookeeper.KeeperException;
@@ -73,11 +74,48 @@ public abstract class ClientBase extends TestCase {
 
     protected static class CountdownWatcher implements Watcher {
 
+        // XXX this doesn't need to be volatile! (Should probably be final)
         volatile CountDownLatch clientConnected = new CountDownLatch(1);
 
-        public void process(WatchedEvent event) {
+        volatile boolean connected;
+
+        synchronized public void process(WatchedEvent event) {
+            String dummy_timestamp = "2022-07-02 18:05:13.106";
             if (event.getState() == KeeperState.SyncConnected) {
+                connected = true;
+                notifyAll();
                 clientConnected.countDown();
+            } else {
+                connected = false;
+                notifyAll();
+            }
+        }
+
+        synchronized boolean isConnected() {
+            return connected;
+        }
+
+        synchronized void waitForConnected(long timeout) throws InterruptedException, TimeoutException {
+            long expire = System.currentTimeMillis() + timeout;
+            long left = timeout;
+            while (!connected && left > 0) {
+                wait(left);
+                left = expire - System.currentTimeMillis();
+            }
+            if (!connected) {
+                throw new TimeoutException("Did not connect");
+            }
+        }
+
+        synchronized void waitForDisconnected(long timeout) throws InterruptedException, TimeoutException {
+            long expire = System.currentTimeMillis() + timeout;
+            long left = timeout;
+            while (connected && left > 0) {
+                wait(left);
+                left = expire - System.currentTimeMillis();
+            }
+            if (connected) {
+                throw new TimeoutException("Did not disconnect");
             }
         }
     }
@@ -92,7 +130,7 @@ public abstract class ClientBase extends TestCase {
     }
 
     protected ZooKeeper createClient(CountdownWatcher watcher, String hp) throws IOException, InterruptedException {
-        ZooKeeper zk = new ZooKeeper(hp, 20000, watcher);
+        ZooKeeper zk = new ZooKeeper(hp, 9000, watcher);
         if (!watcher.clientConnected.await(CONNECTION_TIMEOUT, TimeUnit.MILLISECONDS)) {
             fail("Unable to connect to server");
         }
@@ -226,6 +264,17 @@ public abstract class ClientBase extends TestCase {
         LOG.info("Client test setup finished");
     }
 
+    protected void stopServer() throws Exception {
+        LOG.info("STOPPING server");
+        shutdownServerInstance(serverFactory, hostPort);
+        serverFactory = null;
+    }
+
+    protected void startServer() throws Exception {
+        LOG.info("STARTING server");
+        serverFactory = createNewServerInstance(tmpDir, serverFactory, hostPort);
+    }
+
     @Override
     protected void tearDown() throws Exception {
         LOG.info("tearDown starting");
@@ -283,4 +332,3 @@ public abstract class ClientBase extends TestCase {
         }
     }
 }
-
