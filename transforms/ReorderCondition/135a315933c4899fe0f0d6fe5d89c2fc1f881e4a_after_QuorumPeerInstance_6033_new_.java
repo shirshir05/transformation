@@ -58,7 +58,9 @@ class QuorumPeerInstance implements Instance {
 
     InetSocketAddress clientAddr;
 
-    InetSocketAddress quorumAddr;
+    InetSocketAddress quorumLeaderAddr;
+
+    InetSocketAddress quorumLeaderElectionAddr;
 
     HashMap<Long, QuorumServer> peers;
 
@@ -115,12 +117,19 @@ class QuorumPeerInstance implements Instance {
             }
             try {
                 ServerSocket ss = new ServerSocket(0, 1, InetAddress.getLocalHost());
-                quorumAddr = (InetSocketAddress) ss.getLocalSocketAddress();
+                quorumLeaderAddr = (InetSocketAddress) ss.getLocalSocketAddress();
                 ss.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
-            String report = clientAddr.getHostName() + ':' + clientAddr.getPort() + ',' + quorumAddr.getHostName() + ':' + quorumAddr.getPort();
+            try {
+                ServerSocket ss = new ServerSocket(0, 1, InetAddress.getLocalHost());
+                quorumLeaderElectionAddr = (InetSocketAddress) ss.getLocalSocketAddress();
+                ss.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            String report = clientAddr.getHostName() + ':' + clientAddr.getPort() + ',' + quorumLeaderAddr.getHostName() + ':' + quorumLeaderAddr.getPort() + ':' + quorumLeaderElectionAddr.getPort();
             try {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Reporting " + report);
@@ -165,12 +174,14 @@ class QuorumPeerInstance implements Instance {
             String[] parts = quorumSpecs.split(",");
             peers = new HashMap<Long, QuorumServer>();
             for (int i = 0; i < parts.length; i++) {
-                String[] subparts = parts[i].split(":");
-                peers.put(Long.valueOf(i), new QuorumServer(i, new InetSocketAddress(subparts[0], Integer.parseInt(subparts[1]))));
+                // parts[i] == "host:leaderPort:leaderElectionPort;clientPort"
+                String[] subparts = (parts[i].split(";"))[0].split(":");
+                String clientPort = (parts[i].split(";"))[1];
+                peers.put(Long.valueOf(i), new QuorumServer(i, new InetSocketAddress(subparts[0], Integer.parseInt(subparts[1])), new InetSocketAddress(subparts[0], Integer.parseInt(subparts[2])), new InetSocketAddress(subparts[0], Integer.parseInt(clientPort))));
             }
             try {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Starting quorumPeer " + serverId + " on port " + clientAddr.getPort());
+                    LOG.debug(" on port " + "Starting quorumPeer " + serverId + clientAddr.getPort());
                 }
                 if (peer != null) {
                     LOG.warn("Peer " + serverId + " already started");
@@ -283,4 +294,3 @@ class QuorumPeerInstance implements Instance {
         im.getStatus("server" + index, 3000);
     }
 }
-
