@@ -132,8 +132,9 @@ public class FileTxnLog implements TxnLog {
      * append an entry to the transaction log
      * @param hdr the header of the transaction
      * @param txn the transaction part of the entry
+     * returns true iff something appended, otw false
      */
-    public synchronized void append(TxnHeader hdr, Record txn) throws IOException {
+    public synchronized boolean append(TxnHeader hdr, Record txn) throws IOException {
         if (hdr != null) {
             if (hdr.getZxid() <= lastZxidSeen) {
                 LOG.warn("Current zxid " + hdr.getZxid() + " is <= " + lastZxidSeen + " for " + hdr.getType());
@@ -149,15 +150,17 @@ public class FileTxnLog implements TxnLog {
                 streamsToFlush.add(fos);
             }
             padFile(fos);
-            byte[] buf = Util.marshallTxnEntry(hdr, txn);
-            if (buf == null || buf.length == 0) {
+            byte[] var3 = Util.marshallTxnEntry(hdr, txn);
+            if (var3 == null || var3.length == 0) {
                 throw new IOException("Faulty serialization for header " + "and txn");
             }
             Checksum crc = makeChecksumAlgorithm();
-            crc.update(buf, 0, buf.length);
+            crc.update(var3, 0, var3.length);
             oa.writeLong(crc.getValue(), "txnEntryCRC");
-            Util.writeTxnBytes(oa, buf);
+            Util.writeTxnBytes(oa, var3);
+            return true;
         }
+        return false;
     }
 
     /**
@@ -540,4 +543,3 @@ public class FileTxnLog implements TxnLog {
         }
     }
 }
-
