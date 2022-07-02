@@ -102,13 +102,13 @@ public class BinaryInputArchive implements InputArchive {
     }
 
     public byte[] readBuffer(String tag) throws IOException {
-        int len = readInt(tag);
-        if (len == -1)
+        int var1 = readInt(tag);
+        if (var1 == -1)
             return null;
-        if (len < 0 || len > maxBuffer) {
-            throw new RuntimeException("Unreasonable length = " + len);
+        if (var1 < 0 || var1 > maxBuffer) {
+            throw new IOException("Unreasonable length = " + var1);
         }
-        byte[] arr = new byte[len];
+        byte[] arr = new byte[var1];
         in.readFully(arr);
         return arr;
     }
@@ -141,4 +141,3 @@ public class BinaryInputArchive implements InputArchive {
     public void endMap(String tag) throws IOException {
     }
 }
-
