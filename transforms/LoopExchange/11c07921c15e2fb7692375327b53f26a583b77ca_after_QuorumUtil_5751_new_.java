@@ -109,7 +109,7 @@ public class QuorumUtil {
             }
             for (int i = 1; i <= ALL; ++i) {
                 PeerStruct ps = peers.get(i);
-                LOG.info("Creating QuorumPeer " + i + "; public port " + ps.clientPort);
+                LOG.info("Creating QuorumPeer {}; public port {}", i, ps.clientPort);
                 ps.peer = new QuorumPeer(peersView, ps.dataDir, ps.dataDir, ps.clientPort, electionAlg, ps.id, tickTime, initLimit, syncLimit, connectToLearnerMasterLimit);
                 assertEquals(ps.clientPort, ps.peer.getClientPort());
             }
@@ -137,12 +137,12 @@ public class QuorumUtil {
         shutdownAll();
         for (int i = 1; i <= ALL; ++i) {
             start(i);
-            LOG.info("Started QuorumPeer " + i);
+            LOG.info("Started QuorumPeer {}", i);
         }
-        LOG.info("Checking ports " + hostPort);
+        LOG.info("Checking ports {}", hostPort);
         for (String hp : hostPort.split(",")) {
             assertTrue("waiting for server up", ClientBase.waitForServerUp(hp, ClientBase.CONNECTION_TIMEOUT));
-            LOG.info(hp + " is accepting client connections");
+            LOG.info("{} is accepting client connections", hp);
         }
         // This was added to avoid running into the problem of ZOOKEEPER-1539
         if (disableJMXTest) {
@@ -164,8 +164,12 @@ public class QuorumUtil {
                     ensureNames.add("name0=ReplicatedServer_id" + i + ",name1=replica." + j);
                 }
             }
-            for (int i = 1; i <= ALL; ++i) {
-                ensureNames.add("name0=ReplicatedServer_id" + i);
+            {
+                int i = 1;
+                while (i <= ALL) {
+                    ensureNames.add("name0=ReplicatedServer_id" + i);
+                    ++i;
+                }
             }
             JMXEnv.ensureAll(ensureNames.toArray(new String[ensureNames.size()]));
         } catch (IOException e) {
@@ -190,7 +194,7 @@ public class QuorumUtil {
 
     public void start(int id) throws IOException {
         PeerStruct ps = getPeer(id);
-        LOG.info("Creating QuorumPeer " + ps.id + "; public port " + ps.clientPort);
+        LOG.info("Creating QuorumPeer {}; public port {}", ps.id, ps.clientPort);
         ps.peer = new QuorumPeer(peersView, ps.dataDir, ps.dataDir, ps.clientPort, electionAlg, ps.id, tickTime, initLimit, syncLimit, connectToLearnerMasterLimit);
         if (localSessionEnabled) {
             ps.peer.enableLocalSessions(true);
@@ -206,7 +210,7 @@ public class QuorumUtil {
 
     public void startThenShutdown(int id) throws IOException {
         PeerStruct ps = getPeer(id);
-        LOG.info("Creating QuorumPeer " + ps.id + "; public port " + ps.clientPort);
+        LOG.info("Creating QuorumPeer {}; public port {}", ps.id, ps.clientPort);
         ps.peer = new QuorumPeer(peersView, ps.dataDir, ps.dataDir, ps.clientPort, electionAlg, ps.id, tickTime, initLimit, syncLimit, connectToLearnerMasterLimit);
         if (localSessionEnabled) {
             ps.peer.enableLocalSessions(true);
@@ -223,29 +227,29 @@ public class QuorumUtil {
         }
         for (String hp : hostPort.split(",")) {
             assertTrue("Waiting for server down", ClientBase.waitForServerDown(hp, ClientBase.CONNECTION_TIMEOUT));
-            LOG.info(hp + " is no longer accepting client connections");
+            LOG.info("{} is no longer accepting client connections", hp);
         }
     }
 
     public void shutdown(int id) {
         QuorumPeer qp = getPeer(id).peer;
         try {
-            LOG.info("Shutting down quorum peer " + qp.getName());
+            LOG.info("Shutting down quorum peer {}", qp.getName());
             qp.shutdown();
             Election e = qp.getElectionAlg();
             if (e != null) {
-                LOG.info("Shutting down leader election " + qp.getName());
+                LOG.info("Shutting down leader election {}", qp.getName());
                 e.shutdown();
             } else {
-                LOG.info("No election available to shutdown " + qp.getName());
+                LOG.info("No election available to shutdown {}", qp.getName());
             }
-            LOG.info("Waiting for " + qp.getName() + " to exit thread");
+            LOG.info("Waiting for {} to exit thread", qp.getName());
             qp.join(30000);
             if (qp.isAlive()) {
                 fail("QP failed to shutdown in 30 seconds: " + qp.getName());
             }
         } catch (InterruptedException e) {
-            LOG.debug("QP interrupted: " + qp.getName(), e);
+            LOG.debug("QP interrupted: {}", qp.getName(), e);
         }
     }
 
@@ -280,7 +284,7 @@ public class QuorumUtil {
         LOG.info("TearDown started");
         OSMXBean osMbean = new OSMXBean();
         if (osMbean.getUnix()) {
-            LOG.info("fdcount after test is: " + osMbean.getOpenFileDescriptorCount());
+            LOG.info("fdcount after test is: {}", osMbean.getOpenFileDescriptorCount());
         }
         shutdownAll();
         JMXEnv.tearDown();
@@ -302,4 +306,3 @@ public class QuorumUtil {
         return "127.0.0.1:" + getPeer(index).clientPort;
     }
 }
-
