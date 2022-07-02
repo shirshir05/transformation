@@ -176,14 +176,20 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
 
     @Override
     void connect(InetSocketAddress addr) throws IOException {
-        SocketChannel sock;
-        sock = SocketChannel.open();
-        sock.configureBlocking(false);
-        sock.socket().setSoLinger(false, -1);
-        sock.socket().setTcpNoDelay(true);
-        sockKey = sock.register(selector, SelectionKey.OP_CONNECT);
-        if (sock.connect(addr)) {
-            sendThread.primeConnection();
+        SocketChannel var1;
+        var1 = SocketChannel.open();
+        var1.configureBlocking(false);
+        var1.socket().setSoLinger(false, -1);
+        var1.socket().setTcpNoDelay(true);
+        try {
+            sockKey = var1.register(selector, SelectionKey.OP_CONNECT);
+            boolean immediateConnect = var1.connect(addr);
+            if (immediateConnect) {
+                sendThread.primeConnection();
+            }
+        } catch (IOException e) {
+            LOG.error("Unable to open socket to " + addr);
+            var1.close();
         }
         initialized = false;
         /*
@@ -292,5 +298,8 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
     synchronized void enableReadWriteOnly() {
         sockKey.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
     }
-}
 
+    Selector getSelector() {
+        return selector;
+    }
+}
