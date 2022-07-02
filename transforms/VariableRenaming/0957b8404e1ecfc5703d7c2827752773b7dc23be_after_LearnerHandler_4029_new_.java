@@ -41,21 +41,25 @@ import org.apache.zookeeper.txn.TxnHeader;
 
 /**
  * There will be an instance of this class created by the Leader for each
- * follower.All communication for a given Follower will be handled by this
+ * learner. All communication with a learner is handled by this
  * class.
  */
-public class FollowerHandler extends Thread {
+public class LearnerHandler extends Thread {
 
-    private static final Logger LOG = Logger.getLogger(FollowerHandler.class);
+    private static final Logger LOG = Logger.getLogger(LearnerHandler.class);
 
-    public final Socket sock;
+    protected final Socket sock;
+
+    public Socket getSocket() {
+        return sock;
+    }
 
     final Leader leader;
 
     long tickOfLastAck;
 
     /**
-     * ZooKeeper server identifier of this follower
+     * ZooKeeper server identifier of this learner
      */
     protected long sid = 0;
 
@@ -64,7 +68,7 @@ public class FollowerHandler extends Thread {
     }
 
     /**
-     * The packets to be sent to the follower
+     * The packets to be sent to the learner
      */
     final LinkedBlockingQueue<QuorumPacket> queuedPackets = new LinkedBlockingQueue<QuorumPacket>();
 
@@ -74,17 +78,17 @@ public class FollowerHandler extends Thread {
 
     private BufferedOutputStream bufferedOutput;
 
-    FollowerHandler(Socket sock, Leader leader) throws IOException {
-        super("FollowerHandler-" + sock.getRemoteSocketAddress());
+    LearnerHandler(Socket sock, Leader leader) throws IOException {
+        super("LeanerHandler-" + sock.getRemoteSocketAddress());
         this.sock = sock;
         this.leader = leader;
-        leader.addFollowerHandler(this);
+        leader.addLearnerHandler(this);
     }
 
     @Override
     public String toString() {
         StringBuffer sb = new StringBuffer();
-        sb.append("FollowerHandler ").append(sock);
+        sb.append("LearnerHandler ").append(sock);
         sb.append(" tickOfLastAck:").append(tickOfLastAck());
         sb.append(" synced?:").append(synced());
         sb.append(" queuedPacketLength:").append(queuedPackets.size());
@@ -192,8 +196,8 @@ public class FollowerHandler extends Thread {
     }
 
     /**
-     * This thread will receive packets from the follower and process them and
-     * also listen to new connections from new followers.
+     * This thread will receive packets from the peer and process them and
+     * also listen to new connections from new peers.
      */
     @Override
     public void run() {
@@ -201,14 +205,14 @@ public class FollowerHandler extends Thread {
             ia = BinaryInputArchive.getArchive(new BufferedInputStream(sock.getInputStream()));
             bufferedOutput = new BufferedOutputStream(sock.getOutputStream());
             oa = BinaryOutputArchive.getArchive(bufferedOutput);
-            QuorumPacket qp = new QuorumPacket();
-            ia.readRecord(qp, "packet");
-            if (qp.getType() != leader.FOLLOWERINFO) {
-                LOG.error("First packet " + qp.toString() + " is not FOLLOWERINFO!");
+            QuorumPacket var0 = new QuorumPacket();
+            ia.readRecord(var0, "packet");
+            if (var0.getType() != Leader.FOLLOWERINFO) {
+                LOG.error("First packet " + var0.toString() + " is not FOLLOWERINFO!");
                 return;
             }
-            if (qp.getData() != null) {
-                ByteBuffer bbsid = ByteBuffer.wrap(qp.getData());
+            if (var0.getData() != null) {
+                ByteBuffer bbsid = ByteBuffer.wrap(var0.getData());
                 this.sid = bbsid.getLong();
             } else {
                 this.sid = leader.followerCounter.getAndDecrement();
@@ -216,7 +220,7 @@ public class FollowerHandler extends Thread {
             LOG.info("Follower sid: " + this.sid + " : info : " + leader.self.quorumPeers.get(this.sid));
             /* this is the last zxid from the follower but the leader might have to
               restart the follower from a different zxid depending on truncate and diff. */
-            long peerLastZxid = qp.getZxid();
+            long peerLastZxid = var0.getZxid();
             /* the default to send to the follower */
             int packetToSend = Leader.SNAP;
             boolean logTxns = true;
@@ -247,7 +251,7 @@ public class FollowerHandler extends Thread {
             }
             // things simple we just send sanpshot.
             if (logTxns && (peerLastZxid > leader.zk.maxCommittedLog)) {
-                // we can ask the follower to truncate the log
+                // we can ask the peer to truncate the log
                 packetToSend = Leader.TRUNC;
                 zxidToSend = leader.zk.maxCommittedLog;
                 updates = zxidToSend;
@@ -271,7 +275,7 @@ public class FollowerHandler extends Thread {
             /* if we are not truncating or sending a diff just send a snapshot */
             if (packetToSend == Leader.SNAP) {
                 LOG.warn("Sending snapshot last zxid of peer is 0x" + Long.toHexString(peerLastZxid) + " " + " zxid of leader is 0x" + Long.toHexString(leaderLastZxid));
-                // Dump data to follower
+                // Dump data to peer
                 leader.zk.serializeSnapshot(oa);
                 oa.writeString("BenWasHere", "signature");
             }
@@ -291,27 +295,27 @@ public class FollowerHandler extends Thread {
                 }
             }.start();
             while (true) {
-                qp = new QuorumPacket();
-                ia.readRecord(qp, "packet");
+                var0 = new QuorumPacket();
+                ia.readRecord(var0, "packet");
                 long traceMask = ZooTrace.SERVER_PACKET_TRACE_MASK;
-                if (qp.getType() == Leader.PING) {
+                if (var0.getType() == Leader.PING) {
                     traceMask = ZooTrace.SERVER_PING_TRACE_MASK;
                 }
                 if (LOG.isTraceEnabled()) {
-                    ZooTrace.logQuorumPacket(LOG, traceMask, 'i', qp);
+                    ZooTrace.logQuorumPacket(LOG, traceMask, 'i', var0);
                 }
                 tickOfLastAck = leader.self.tick;
                 ByteBuffer bb;
                 long sessionId;
                 int cxid;
                 int type;
-                switch(qp.getType()) {
+                switch(var0.getType()) {
                     case Leader.ACK:
-                        leader.processAck(this.sid, qp.getZxid(), sock.getLocalSocketAddress());
+                        leader.processAck(this.sid, var0.getZxid(), sock.getLocalSocketAddress());
                         break;
                     case Leader.PING:
                         // Process the touches
-                        ByteArrayInputStream bis = new ByteArrayInputStream(qp.getData());
+                        ByteArrayInputStream bis = new ByteArrayInputStream(var0.getData());
                         DataInputStream dis = new DataInputStream(bis);
                         while (dis.available() > 0) {
                             long sess = dis.readLong();
@@ -320,7 +324,7 @@ public class FollowerHandler extends Thread {
                         }
                         break;
                     case Leader.REVALIDATE:
-                        bis = new ByteArrayInputStream(qp.getData());
+                        bis = new ByteArrayInputStream(var0.getData());
                         dis = new DataInputStream(bis);
                         long id = dis.readLong();
                         int to = dis.readInt();
@@ -340,19 +344,19 @@ public class FollowerHandler extends Thread {
                             ZooTrace.logTraceMessage(LOG, ZooTrace.SESSION_TRACE_MASK, "Session 0x" + Long.toHexString(id) + " is valid: " + valid);
                         }
                         dos.writeBoolean(valid);
-                        qp.setData(bos.toByteArray());
-                        queuedPackets.add(qp);
+                        var0.setData(bos.toByteArray());
+                        queuedPackets.add(var0);
                         break;
                     case Leader.REQUEST:
-                        bb = ByteBuffer.wrap(qp.getData());
+                        bb = ByteBuffer.wrap(var0.getData());
                         sessionId = bb.getLong();
                         cxid = bb.getInt();
                         type = bb.getInt();
                         bb = bb.slice();
                         if (type == OpCode.sync) {
-                            leader.zk.submitRequest(new FollowerSyncRequest(this, sessionId, cxid, type, bb, qp.getAuthinfo()));
+                            leader.zk.submitRequest(new LearnerSyncRequest(this, sessionId, cxid, type, bb, var0.getAuthinfo()));
                         } else {
-                            Request si = new Request(null, sessionId, cxid, type, bb, qp.getAuthinfo());
+                            Request si = new Request(null, sessionId, cxid, type, bb, var0.getAuthinfo());
                             si.setOwner(this);
                             leader.zk.submitRequest(si);
                         }
@@ -386,7 +390,7 @@ public class FollowerHandler extends Thread {
         } catch (IOException e) {
             LOG.warn("Ignoring unexpected exception during socket close", e);
         }
-        leader.removeFollowerHandler(this);
+        leader.removeLearnerHandler(this);
     }
 
     public long tickOfLastAck() {
@@ -394,7 +398,7 @@ public class FollowerHandler extends Thread {
     }
 
     /**
-     * ping calls from the leader to the followers
+     * ping calls from the leader to the peers
      */
     public void ping() {
         long id;
@@ -413,4 +417,3 @@ public class FollowerHandler extends Thread {
         return isAlive() && tickOfLastAck >= leader.self.tick - leader.self.syncLimit;
     }
 }
-
