@@ -38,6 +38,7 @@ import org.apache.zookeeper.server.quorum.QuorumPeer.QuorumServer;
 import org.apache.zookeeper.server.quorum.flexible.QuorumHierarchical;
 import org.apache.zookeeper.server.quorum.flexible.QuorumMaj;
 import org.apache.zookeeper.server.quorum.flexible.QuorumVerifier;
+import org.apache.zookeeper.server.util.VerifyingFileFactory;
 
 public class QuorumPeerConfig {
 
@@ -45,9 +46,9 @@ public class QuorumPeerConfig {
 
     protected InetSocketAddress clientPortAddress;
 
-    protected String dataDir;
+    protected File dataDir;
 
-    protected String dataLogDir;
+    protected File dataLogDir;
 
     protected int tickTime = ZooKeeperServer.DEFAULT_TICK_TIME;
 
@@ -115,12 +116,9 @@ public class QuorumPeerConfig {
      * @throws ConfigException error processing configuration
      */
     public void parse(String path) throws ConfigException {
-        File configFile = new File(path);
-        LOG.info("Reading configuration from: " + configFile);
+        LOG.info("Reading configuration from: " + path);
         try {
-            if (!configFile.exists()) {
-                throw new IllegalArgumentException(configFile.toString() + " file is missing");
-            }
+            File configFile = (new VerifyingFileFactory.Builder(LOG).warnForRelativePath().failForNonExistingPath().build()).create(path);
             Properties cfg = new Properties();
             FileInputStream in = new FileInputStream(configFile);
             try {
@@ -145,13 +143,14 @@ public class QuorumPeerConfig {
     public void parseProperties(Properties zkProp) throws IOException, ConfigException {
         int clientPort = 0;
         String clientPortAddress = null;
+        VerifyingFileFactory vff = new VerifyingFileFactory.Builder(LOG).warnForRelativePath().build();
         for (Entry<Object, Object> entry : zkProp.entrySet()) {
             String key = entry.getKey().toString().trim();
             String value = entry.getValue().toString().trim();
             if (key.equals("dataDir")) {
-                dataDir = value;
+                dataDir = vff.create(value);
             } else if (key.equals("dataLogDir")) {
-                dataLogDir = value;
+                dataLogDir = vff.create(value);
             } else if (key.equals("clientPort")) {
                 clientPort = Integer.parseInt(value);
             } else if (key.equals("clientPortAddress")) {
@@ -198,10 +197,10 @@ public class QuorumPeerConfig {
                 } else if (parts.length == 4) {
                     InetSocketAddress electionAddr = new InetSocketAddress(parts[0], Integer.parseInt(parts[2]));
                     LearnerType type = LearnerType.PARTICIPANT;
-                    if (parts[3].toLowerCase().equals("observer")) {
+                    if (parts[3].equalsIgnoreCase("observer")) {
                         type = LearnerType.OBSERVER;
                         observers.put(Long.valueOf(sid), new QuorumServer(sid, addr, electionAddr, type));
-                    } else if (parts[3].toLowerCase().equals("participant")) {
+                    } else if (parts[3].equalsIgnoreCase("participant")) {
                         type = LearnerType.PARTICIPANT;
                         servers.put(Long.valueOf(sid), new QuorumServer(sid, addr, electionAddr, type));
                     } else {
@@ -239,17 +238,17 @@ public class QuorumPeerConfig {
         if (dataLogDir == null) {
             dataLogDir = dataDir;
         } else {
-            if (!new File(dataLogDir).isDirectory()) {
+            if (!dataLogDir.isDirectory()) {
                 throw new IllegalArgumentException("dataLogDir " + dataLogDir + " is missing.");
             }
         }
         if (clientPort == 0) {
             throw new IllegalArgumentException("clientPort is not set");
         }
-        if (clientPortAddress != null) {
-            this.clientPortAddress = new InetSocketAddress(InetAddress.getByName(clientPortAddress), clientPort);
-        } else {
+        if (clientPortAddress == null) {
             this.clientPortAddress = new InetSocketAddress(clientPort);
+        } else {
+            this.clientPortAddress = new InetSocketAddress(InetAddress.getByName(clientPortAddress), clientPort);
         }
         if (tickTime == 0) {
             throw new IllegalArgumentException("tickTime is not set");
@@ -296,7 +295,7 @@ public class QuorumPeerConfig {
              * Default of quorum config is majority
              */
             if (serverGroup.size() > 0) {
-                if (servers.size() != serverGroup.size())
+                if (serverGroup.size() != servers.size())
                     throw new ConfigException("Every server must be in exactly one group");
                 /*
                  * The deafult weight of a server is 1
@@ -345,11 +344,11 @@ public class QuorumPeerConfig {
         return clientPortAddress;
     }
 
-    public String getDataDir() {
+    public File getDataDir() {
         return dataDir;
     }
 
-    public String getDataLogDir() {
+    public File getDataLogDir() {
         return dataLogDir;
     }
 
@@ -413,4 +412,3 @@ public class QuorumPeerConfig {
         return peerType;
     }
 }
-
