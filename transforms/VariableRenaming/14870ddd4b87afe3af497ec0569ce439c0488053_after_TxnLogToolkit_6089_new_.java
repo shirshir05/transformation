@@ -30,6 +30,10 @@ import org.apache.jute.Record;
 import org.apache.zookeeper.server.ExitCode;
 import org.apache.zookeeper.server.TraceFormatter;
 import org.apache.zookeeper.server.util.SerializeUtils;
+import org.apache.zookeeper.txn.CreateContainerTxn;
+import org.apache.zookeeper.txn.CreateTTLTxn;
+import org.apache.zookeeper.txn.CreateTxn;
+import org.apache.zookeeper.txn.SetDataTxn;
 import org.apache.zookeeper.txn.TxnHeader;
 import java.io.Closeable;
 import java.io.EOFException;
@@ -224,7 +228,8 @@ public class TxnLogToolkit implements Closeable {
     private void printTxn(byte[] bytes, String prefix) throws IOException {
         TxnHeader hdr = new TxnHeader();
         Record txn = SerializeUtils.deserializeTxn(bytes, hdr);
-        String txns = String.format("%s session 0x%s cxid 0x%s zxid 0x%s %s %s", DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.LONG).format(new Date(hdr.getTime())), Long.toHexString(hdr.getClientId()), Long.toHexString(hdr.getCxid()), Long.toHexString(hdr.getZxid()), TraceFormatter.op2String(hdr.getType()), txn);
+        String txnStr = getDataStrFromTxn(txn);
+        String txns = String.format("%s session 0x%s cxid 0x%s zxid 0x%s %s %s", DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.LONG).format(new Date(hdr.getTime())), Long.toHexString(hdr.getClientId()), Long.toHexString(hdr.getCxid()), Long.toHexString(hdr.getZxid()), TraceFormatter.op2String(hdr.getType()), txnStr);
         if (prefix != null && !"".equals(prefix.trim())) {
             System.out.print(prefix + " - ");
         }
@@ -233,6 +238,34 @@ public class TxnLogToolkit implements Closeable {
         } else {
             System.out.println(txns);
         }
+    }
+
+    /**
+     * get transaction log data string with node's data as a string
+     * @param txn
+     * @return
+     */
+    private static String getDataStrFromTxn(Record txn) {
+        StringBuilder txnData = new StringBuilder();
+        if (txn == null) {
+            return txnData.toString();
+        }
+        if (txn instanceof CreateTxn) {
+            CreateTxn createTxn = ((CreateTxn) txn);
+            txnData.append(createTxn.getPath() + "," + new String(createTxn.getData())).append("," + createTxn.getAcl() + "," + createTxn.getEphemeral()).append("," + createTxn.getParentCVersion());
+        } else if (txn instanceof SetDataTxn) {
+            SetDataTxn setDataTxn = ((SetDataTxn) txn);
+            txnData.append(setDataTxn.getPath() + "," + new String(setDataTxn.getData())).append("," + setDataTxn.getVersion());
+        } else if (txn instanceof CreateContainerTxn) {
+            CreateContainerTxn createContainerTxn = ((CreateContainerTxn) txn);
+            txnData.append(createContainerTxn.getPath() + "," + new String(createContainerTxn.getData())).append("," + createContainerTxn.getAcl() + "," + createContainerTxn.getParentCVersion());
+        } else if (txn instanceof CreateTTLTxn) {
+            CreateTTLTxn createTTLTxn = ((CreateTTLTxn) txn);
+            txnData.append(createTTLTxn.getPath() + "," + new String(createTTLTxn.getData())).append("," + createTTLTxn.getAcl() + "," + createTTLTxn.getParentCVersion()).append("," + createTTLTxn.getTtl());
+        } else {
+            txnData.append(txn.toString());
+        }
+        return txnData.toString();
     }
 
     private void openTxnLogFile() throws FileNotFoundException {
@@ -262,11 +295,11 @@ public class TxnLogToolkit implements Closeable {
         Options options = new Options();
         Option helpOpt = new Option("h", "help", false, "Print help message");
         options.addOption(helpOpt);
-        Option recoverOpt = new Option("r", "recover", false, "Recovery mode. Re-calculate CRC for broken entries.");
-        options.addOption(recoverOpt);
+        Option var4 = new Option("r", "recover", false, "Recovery mode. Re-calculate CRC for broken entries.");
+        options.addOption(var4);
         Option quietOpt = new Option("v", "verbose", false, "Be verbose in recovery mode: print all entries, not just fixed ones.");
         options.addOption(quietOpt);
-        Option dumpOpt = new Option("d", "dump", false, "Dump mode. Dump all entries of the log file. (this is the default)");
+        Option dumpOpt = new Option("d", "dump", false, "Dump mode. Dump all entries of the log file with printing the content of a nodepath (default)");
         options.addOption(dumpOpt);
         Option forceOpt = new Option("y", "yes", false, "Non-interactive mode: repair all CRC errors without asking");
         options.addOption(forceOpt);
@@ -304,4 +337,3 @@ public class TxnLogToolkit implements Closeable {
         closeTxnLogFile();
     }
 }
-
