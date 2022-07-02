@@ -58,7 +58,9 @@ class QuorumPeerInstance implements Instance {
 
     InetSocketAddress clientAddr;
 
-    InetSocketAddress quorumAddr;
+    InetSocketAddress quorumLeaderAddr;
+
+    InetSocketAddress quorumLeaderElectionAddr;
 
     HashMap<Long, QuorumServer> peers;
 
@@ -110,24 +112,31 @@ class QuorumPeerInstance implements Instance {
                 ServerSocket ss = new ServerSocket(0, 1, InetAddress.getLocalHost());
                 clientAddr = (InetSocketAddress) ss.getLocalSocketAddress();
                 ss.close();
-            } catch (IOException e) {
-                e.printStackTrace();
+            } catch (IOException var3) {
+                var3.printStackTrace();
             }
             try {
                 ServerSocket ss = new ServerSocket(0, 1, InetAddress.getLocalHost());
-                quorumAddr = (InetSocketAddress) ss.getLocalSocketAddress();
+                quorumLeaderAddr = (InetSocketAddress) ss.getLocalSocketAddress();
                 ss.close();
-            } catch (IOException e) {
-                e.printStackTrace();
+            } catch (IOException var3) {
+                var3.printStackTrace();
             }
-            String report = clientAddr.getHostName() + ':' + clientAddr.getPort() + ',' + quorumAddr.getHostName() + ':' + quorumAddr.getPort();
+            try {
+                ServerSocket ss = new ServerSocket(0, 1, InetAddress.getLocalHost());
+                quorumLeaderElectionAddr = (InetSocketAddress) ss.getLocalSocketAddress();
+                ss.close();
+            } catch (IOException var3) {
+                var3.printStackTrace();
+            }
+            String report = clientAddr.getHostName() + ':' + clientAddr.getPort() + ',' + quorumLeaderAddr.getHostName() + ':' + quorumLeaderAddr.getPort() + ':' + quorumLeaderElectionAddr.getPort();
             try {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Reporting " + report);
                 }
                 r.report(report);
-            } catch (Exception e) {
-                e.printStackTrace();
+            } catch (Exception var3) {
+                var3.printStackTrace();
             }
             return;
         } else {
@@ -152,21 +161,23 @@ class QuorumPeerInstance implements Instance {
                         try {
                             // Wait until we can't connect
                             new Socket("127.0.0.1", clientAddr.getPort()).close();
-                        } catch (IOException e) {
+                        } catch (IOException var3) {
                             break;
                         }
                     }
                     r.report("stopped");
-                } catch (Exception e) {
-                    LOG.error("Unhandled error", e);
+                } catch (Exception var3) {
+                    LOG.error("Unhandled error", var3);
                 }
                 return;
             }
             String[] parts = quorumSpecs.split(",");
             peers = new HashMap<Long, QuorumServer>();
             for (int i = 0; i < parts.length; i++) {
-                String[] subparts = parts[i].split(":");
-                peers.put(Long.valueOf(i), new QuorumServer(i, new InetSocketAddress(subparts[0], Integer.parseInt(subparts[1]))));
+                // parts[i] == "host:leaderPort:leaderElectionPort;clientPort"
+                String[] subparts = (parts[i].split(";"))[0].split(":");
+                String clientPort = (parts[i].split(";"))[1];
+                peers.put(Long.valueOf(i), new QuorumServer(i, new InetSocketAddress(subparts[0], Integer.parseInt(subparts[1])), new InetSocketAddress(subparts[0], Integer.parseInt(subparts[2])), new InetSocketAddress(subparts[0], Integer.parseInt(clientPort))));
             }
             try {
                 if (LOG.isDebugEnabled()) {
@@ -185,12 +196,12 @@ class QuorumPeerInstance implements Instance {
                         // Wait until we can connect
                         new Socket("127.0.0.1", clientAddr.getPort()).close();
                         break;
-                    } catch (IOException e) {
+                    } catch (IOException var3) {
                     }
                 }
                 r.report("started");
-            } catch (Exception e) {
-                LOG.error("Unhandled exception", e);
+            } catch (Exception var3) {
+                LOG.error("Unhandled exception", var3);
             }
         }
     }
@@ -283,4 +294,3 @@ class QuorumPeerInstance implements Instance {
         im.getStatus("server" + index, 3000);
     }
 }
-
