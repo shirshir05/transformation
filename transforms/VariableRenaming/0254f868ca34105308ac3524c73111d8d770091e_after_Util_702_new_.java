@@ -303,9 +303,9 @@ public class Util {
         }
 
         public int compare(File o1, File o2) {
-            long var2 = Util.getZxidFromName(o1.getName(), prefix);
-            long z2 = Util.getZxidFromName(o2.getName(), prefix);
-            int result = var2 < z2 ? -1 : (var2 > z2 ? 1 : 0);
+            long z1 = Util.getZxidFromName(o1.getName(), prefix);
+            long var3 = Util.getZxidFromName(o2.getName(), prefix);
+            int result = z1 < var3 ? -1 : (z1 > var3 ? 1 : 0);
             return ascending ? result : -result;
         }
     }
