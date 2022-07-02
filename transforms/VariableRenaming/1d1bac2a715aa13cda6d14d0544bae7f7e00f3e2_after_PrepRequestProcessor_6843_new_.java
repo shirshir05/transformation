@@ -273,9 +273,9 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
      * @param record
      */
     @SuppressWarnings("unchecked")
-    protected void pRequest2Txn(int type, long zxid, Request request, Record record) throws KeeperException {
-        request.hdr = new TxnHeader(request.sessionId, request.cxid, zxid, zks.getTime(), type);
-        switch(type) {
+    protected void pRequest2Txn(int var0, long zxid, Request request, Record record) throws KeeperException {
+        request.hdr = new TxnHeader(request.sessionId, request.cxid, zxid, zks.getTime(), var0);
+        switch(var0) {
             case OpCode.create:
                 zks.sessionTracker.checkSession(request.sessionId, request.getOwner());
                 CreateRequest createRequest = (CreateRequest) record;
@@ -285,7 +285,8 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
                     LOG.info("Invalid path " + path + " with session 0x" + Long.toHexString(request.sessionId));
                     throw new KeeperException.BadArgumentsException(path);
                 }
-                if (!fixupACL(request.authInfo, createRequest.getAcl())) {
+                List<ACL> listACL = removeDuplicates(createRequest.getAcl());
+                if (!fixupACL(request.authInfo, listACL)) {
                     throw new KeeperException.InvalidACLException(path);
                 }
                 String parentPath = path.substring(0, lastSlash);
@@ -313,7 +314,7 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
                     throw new KeeperException.NoChildrenForEphemeralsException(path);
                 }
                 int newCversion = parentRecord.stat.getCversion() + 1;
-                request.txn = new CreateTxn(path, createRequest.getData(), createRequest.getAcl(), createMode.isEphemeral(), newCversion);
+                request.txn = new CreateTxn(path, createRequest.getData(), listACL, createMode.isEphemeral(), newCversion);
                 StatPersisted s = new StatPersisted();
                 if (createMode.isEphemeral()) {
                     s.setEphemeralOwner(request.sessionId);
@@ -322,7 +323,7 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
                 parentRecord.childCount++;
                 parentRecord.stat.setCversion(newCversion);
                 addChangeRecord(parentRecord);
-                addChangeRecord(new ChangeRecord(request.hdr.getZxid(), path, s, 0, createRequest.getAcl()));
+                addChangeRecord(new ChangeRecord(request.hdr.getZxid(), path, s, 0, listACL));
                 break;
             case OpCode.delete:
                 zks.sessionTracker.checkSession(request.sessionId, request.getOwner());
@@ -370,7 +371,8 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
                 zks.sessionTracker.checkSession(request.sessionId, request.getOwner());
                 SetACLRequest setAclRequest = (SetACLRequest) record;
                 path = setAclRequest.getPath();
-                if (!fixupACL(request.authInfo, setAclRequest.getAcl())) {
+                listACL = removeDuplicates(setAclRequest.getAcl());
+                if (!fixupACL(request.authInfo, listACL)) {
                     throw new KeeperException.InvalidACLException(path);
                 }
                 nodeRecord = getRecordForPath(path);
@@ -381,7 +383,7 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
                     throw new KeeperException.BadVersionException(path);
                 }
                 version = currentVersion + 1;
-                request.txn = new SetACLTxn(path, setAclRequest.getAcl(), version);
+                request.txn = new SetACLTxn(path, listACL, version);
                 nodeRecord = nodeRecord.duplicate(request.hdr.getZxid());
                 nodeRecord.stat.setAversion(version);
                 addChangeRecord(nodeRecord);
@@ -561,6 +563,18 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
         nextProcessor.processRequest(request);
     }
 
+    private List<ACL> removeDuplicates(List<ACL> acl) {
+        ArrayList<ACL> retval = new ArrayList<ACL>();
+        Iterator<ACL> it = acl.iterator();
+        while (it.hasNext()) {
+            ACL a = it.next();
+            if (retval.contains(a) == false) {
+                retval.add(a);
+            }
+        }
+        return retval;
+    }
+
     /**
      * This method checks out the acl making sure it isn't null or empty,
      * it has valid schemes and ids, and expanding any relative ids that
@@ -632,4 +646,3 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
         nextProcessor.shutdown();
     }
 }
-
