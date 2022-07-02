@@ -35,6 +35,7 @@ import org.apache.zookeeper.data.Id;
 import org.apache.zookeeper.data.StatPersisted;
 import org.apache.zookeeper.proto.CheckVersionRequest;
 import org.apache.zookeeper.proto.CreateRequest;
+import org.apache.zookeeper.proto.CreateTTLRequest;
 import org.apache.zookeeper.proto.DeleteRequest;
 import org.apache.zookeeper.proto.ReconfigRequest;
 import org.apache.zookeeper.proto.SetACLRequest;
@@ -52,6 +53,7 @@ import org.apache.zookeeper.server.quorum.flexible.QuorumVerifier;
 import org.apache.zookeeper.txn.CheckVersionTxn;
 import org.apache.zookeeper.txn.CreateContainerTxn;
 import org.apache.zookeeper.txn.CreateSessionTxn;
+import org.apache.zookeeper.txn.CreateTTLTxn;
 import org.apache.zookeeper.txn.CreateTxn;
 import org.apache.zookeeper.txn.DeleteTxn;
 import org.apache.zookeeper.txn.ErrorTxn;
@@ -334,54 +336,15 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
      * @param request
      * @param record
      */
-    protected void pRequest2Txn(int type, long zxid, Request request, Record record, boolean deserialize) throws KeeperException, IOException, RequestProcessorException {
-        request.setHdr(new TxnHeader(request.sessionId, request.cxid, zxid, Time.currentWallTime(), type));
-        switch(type) {
+    protected void pRequest2Txn(int var0, long zxid, Request request, Record record, boolean deserialize) throws KeeperException, IOException, RequestProcessorException {
+        request.setHdr(new TxnHeader(request.sessionId, request.cxid, zxid, Time.currentWallTime(), var0));
+        switch(var0) {
             case OpCode.create:
             case OpCode.create2:
+            case OpCode.createTTL:
             case OpCode.createContainer:
                 {
-                    CreateRequest createRequest = (CreateRequest) record;
-                    if (deserialize) {
-                        ByteBufferInputStream.byteBuffer2Record(request.request, createRequest);
-                    }
-                    CreateMode createMode = CreateMode.fromFlag(createRequest.getFlags());
-                    validateCreateRequest(createMode, request);
-                    String path = createRequest.getPath();
-                    String parentPath = validatePathForCreate(path, request.sessionId);
-                    List<ACL> listACL = fixupACL(path, request.authInfo, createRequest.getAcl());
-                    ChangeRecord parentRecord = getRecordForPath(parentPath);
-                    checkACL(zks, parentRecord.acl, ZooDefs.Perms.CREATE, request.authInfo);
-                    int parentCVersion = parentRecord.stat.getCversion();
-                    if (createMode.isSequential()) {
-                        path = path + String.format(Locale.ENGLISH, "%010d", parentCVersion);
-                    }
-                    validatePath(path, request.sessionId);
-                    try {
-                        if (getRecordForPath(path) != null) {
-                            throw new KeeperException.NodeExistsException(path);
-                        }
-                    } catch (KeeperException.NoNodeException e) {
-                    }
-                    boolean ephemeralParent = (parentRecord.stat.getEphemeralOwner() != 0) && (parentRecord.stat.getEphemeralOwner() != DataTree.CONTAINER_EPHEMERAL_OWNER);
-                    if (ephemeralParent) {
-                        throw new KeeperException.NoChildrenForEphemeralsException(path);
-                    }
-                    int newCversion = parentRecord.stat.getCversion() + 1;
-                    if (type == OpCode.createContainer) {
-                        request.setTxn(new CreateContainerTxn(path, createRequest.getData(), listACL, newCversion));
-                    } else {
-                        request.setTxn(new CreateTxn(path, createRequest.getData(), listACL, createMode.isEphemeral(), newCversion));
-                    }
-                    StatPersisted s = new StatPersisted();
-                    if (createMode.isEphemeral()) {
-                        s.setEphemeralOwner(request.sessionId);
-                    }
-                    parentRecord = parentRecord.duplicate(request.getHdr().getZxid());
-                    parentRecord.childCount++;
-                    parentRecord.stat.setCversion(newCversion);
-                    addChangeRecord(parentRecord);
-                    addChangeRecord(new ChangeRecord(request.getHdr().getZxid(), path, s, 0, listACL));
+                    pRequest2TxnCreate(var0, request, record, deserialize);
                     break;
                 }
             case OpCode.deleteContainer:
@@ -393,7 +356,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
                     if (nodeRecord.childCount > 0) {
                         throw new KeeperException.NotEmptyException(path);
                     }
-                    if (nodeRecord.stat.getEphemeralOwner() != DataTree.CONTAINER_EPHEMERAL_OWNER) {
+                    if (EphemeralType.get(nodeRecord.stat.getEphemeralOwner()) == EphemeralType.NORMAL) {
                         throw new KeeperException.BadVersionException(path);
                     }
                     request.setTxn(new DeleteTxn(path));
@@ -612,9 +575,73 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
                 request.setTxn(new CheckVersionTxn(path, checkAndIncVersion(nodeRecord.stat.getVersion(), checkVersionRequest.getVersion(), path)));
                 break;
             default:
-                LOG.warn("unknown type " + type);
+                LOG.warn("unknown type " + var0);
                 break;
         }
+    }
+
+    private void pRequest2TxnCreate(int type, Request request, Record record, boolean deserialize) throws IOException, KeeperException {
+        if (deserialize) {
+            ByteBufferInputStream.byteBuffer2Record(request.request, record);
+        }
+        int flags;
+        String path;
+        List<ACL> acl;
+        byte[] data;
+        long ttl;
+        if (type == OpCode.createTTL) {
+            CreateTTLRequest createTtlRequest = (CreateTTLRequest) record;
+            flags = createTtlRequest.getFlags();
+            path = createTtlRequest.getPath();
+            acl = createTtlRequest.getAcl();
+            data = createTtlRequest.getData();
+            ttl = createTtlRequest.getTtl();
+        } else {
+            CreateRequest createRequest = (CreateRequest) record;
+            flags = createRequest.getFlags();
+            path = createRequest.getPath();
+            acl = createRequest.getAcl();
+            data = createRequest.getData();
+            ttl = 0;
+        }
+        CreateMode createMode = CreateMode.fromFlag(flags);
+        validateCreateRequest(createMode, request);
+        String parentPath = validatePathForCreate(path, request.sessionId);
+        List<ACL> listACL = fixupACL(path, request.authInfo, acl);
+        ChangeRecord parentRecord = getRecordForPath(parentPath);
+        checkACL(zks, parentRecord.acl, ZooDefs.Perms.CREATE, request.authInfo);
+        int parentCVersion = parentRecord.stat.getCversion();
+        if (createMode.isSequential()) {
+            path = path + String.format(Locale.ENGLISH, "%010d", parentCVersion);
+        }
+        validatePath(path, request.sessionId);
+        try {
+            if (getRecordForPath(path) != null) {
+                throw new KeeperException.NodeExistsException(path);
+            }
+        } catch (KeeperException.NoNodeException e) {
+        }
+        boolean ephemeralParent = EphemeralType.get(parentRecord.stat.getEphemeralOwner()) == EphemeralType.NORMAL;
+        if (ephemeralParent) {
+            throw new KeeperException.NoChildrenForEphemeralsException(path);
+        }
+        int newCversion = parentRecord.stat.getCversion() + 1;
+        if (type == OpCode.createContainer) {
+            request.setTxn(new CreateContainerTxn(path, data, listACL, newCversion));
+        } else if (type == OpCode.createTTL) {
+            request.setTxn(new CreateTTLTxn(path, data, listACL, newCversion, ttl));
+        } else {
+            request.setTxn(new CreateTxn(path, data, listACL, createMode.isEphemeral(), newCversion));
+        }
+        StatPersisted s = new StatPersisted();
+        if (createMode.isEphemeral()) {
+            s.setEphemeralOwner(request.sessionId);
+        }
+        parentRecord = parentRecord.duplicate(request.getHdr().getZxid());
+        parentRecord.childCount++;
+        parentRecord.stat.setCversion(newCversion);
+        addChangeRecord(parentRecord);
+        addChangeRecord(new ChangeRecord(request.getHdr().getZxid(), path, s, 0, listACL));
     }
 
     private void validatePath(String path, long sessionId) throws BadArgumentsException {
@@ -658,6 +685,10 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
                 case OpCode.create2:
                     CreateRequest create2Request = new CreateRequest();
                     pRequest2Txn(request.type, zks.getNextZxid(), request, create2Request, true);
+                    break;
+                case OpCode.createTTL:
+                    CreateTTLRequest createTtlRequest = new CreateTTLRequest();
+                    pRequest2Txn(request.type, zks.getNextZxid(), request, createTtlRequest, true);
                     break;
                 case OpCode.deleteContainer:
                 case OpCode.delete:
@@ -875,4 +906,3 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements Req
         nextProcessor.shutdown();
     }
 }
-
