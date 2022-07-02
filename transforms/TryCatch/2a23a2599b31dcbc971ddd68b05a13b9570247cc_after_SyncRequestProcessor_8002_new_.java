@@ -33,31 +33,29 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
 
     private static final Logger LOG = Logger.getLogger(SyncRequestProcessor.class);
 
-    private ZooKeeperServer zks;
+    private final ZooKeeperServer zks;
 
-    private LinkedBlockingQueue<Request> queuedRequests = new LinkedBlockingQueue<Request>();
+    private final LinkedBlockingQueue<Request> queuedRequests = new LinkedBlockingQueue<Request>();
 
-    private RequestProcessor nextProcessor;
+    private final RequestProcessor nextProcessor;
 
-    Thread snapInProcess = null;
+    private Thread snapInProcess = null;
 
     /**
      * Transactions that have been written and are waiting to be flushed to
      * disk. Basically this is the list of SyncItems whose callbacks will be
      * invoked after flush returns successfully.
      */
-    private LinkedList<Request> toFlush = new LinkedList<Request>();
+    private final LinkedList<Request> toFlush = new LinkedList<Request>();
 
-    private Random r = new Random(System.nanoTime());
-
-    private int logCount = 0;
+    private final Random r = new Random(System.nanoTime());
 
     /**
      * The number of log entries to log before starting a snapshot
      */
     private static int snapCount = ZooKeeperServer.getSnapCount();
 
-    private Request requestOfDeath = Request.requestOfDeath;
+    private final Request requestOfDeath = Request.requestOfDeath;
 
     public SyncRequestProcessor(ZooKeeperServer zks, RequestProcessor nextProcessor) {
         super("SyncThread:" + zks.getServerId());
@@ -85,6 +83,8 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
     @Override
     public void run() {
         try {
+            int logCount = 0;
+            // in the ensemble take a snapshot at the same time
             int randRoll = r.nextInt(snapCount / 2);
             while (true) {
                 Request si = null;
@@ -101,29 +101,38 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
                     break;
                 }
                 if (si != null) {
-                    zks.getLogWriter().append(si);
-                    logCount++;
-                    if (logCount > (snapCount / 2 + randRoll)) {
-                        randRoll = r.nextInt(snapCount / 2);
-                        // roll the log
-                        zks.getLogWriter().rollLog();
-                        // take a snapshot
-                        if (snapInProcess != null && snapInProcess.isAlive()) {
-                            LOG.warn("Too busy to snap, skipping");
-                        } else {
-                            snapInProcess = new Thread("Snapshot Thread") {
+                    // track the number of records written to the log
+                    if (zks.getLogWriter().append(si)) {
+                        logCount++;
+                        if (logCount > (snapCount / 2 + randRoll)) {
+                            randRoll = r.nextInt(snapCount / 2);
+                            // roll the log
+                            zks.getLogWriter().rollLog();
+                            // take a snapshot
+                            if (snapInProcess != null && snapInProcess.isAlive()) {
+                                LOG.warn("Too busy to snap, skipping");
+                            } else {
+                                snapInProcess = new Thread("Snapshot Thread") {
 
-                                public void run() {
-                                    try {
-                                        zks.takeSnapshot();
-                                    } catch (Exception e) {
-                                        LOG.warn("Unexpected exception", e);
+                                    public void run() {
+                                        try {
+                                            zks.takeSnapshot();
+                                        } catch (Exception e) {
+                                            LOG.warn("Unexpected exception", e);
+                                        }
                                     }
-                                }
-                            };
-                            snapInProcess.start();
+                                };
+                                snapInProcess.start();
+                            }
+                            logCount = 0;
                         }
-                        logCount = 0;
+                    } else if (toFlush.isEmpty()) {
+                        // processor
+                        nextProcessor.processRequest(si);
+                        if (nextProcessor instanceof Flushable) {
+                            ((Flushable) nextProcessor).flush();
+                        }
+                        continue;
                     }
                     toFlush.add(si);
                     if (toFlush.size() > 1000) {
@@ -139,10 +148,14 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
     }
 
     private void flush(LinkedList<Request> toFlush) throws IOException {
-        if (toFlush.size() == 0)
+        if (toFlush.isEmpty())
             return;
-        zks.getLogWriter().commit();
-        while (toFlush.size() > 0) {
+        try {
+            zks.getLogWriter().commit();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        while (!toFlush.isEmpty()) {
             Request i = toFlush.remove();
             nextProcessor.processRequest(i);
         }
@@ -161,4 +174,3 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
         queuedRequests.add(request);
     }
 }
-
