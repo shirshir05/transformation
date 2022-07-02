@@ -58,7 +58,9 @@ class QuorumPeerInstance implements Instance {
 
     InetSocketAddress clientAddr;
 
-    InetSocketAddress quorumAddr;
+    InetSocketAddress quorumLeaderAddr;
+
+    InetSocketAddress quorumLeaderElectionAddr;
 
     HashMap<Long, QuorumServer> peers;
 
@@ -107,20 +109,27 @@ class QuorumPeerInstance implements Instance {
             }
             // Let's grab two ports
             try {
-                ServerSocket ss = new ServerSocket(0, 1, InetAddress.getLocalHost());
-                clientAddr = (InetSocketAddress) ss.getLocalSocketAddress();
-                ss.close();
+                ServerSocket var6 = new ServerSocket(0, 1, InetAddress.getLocalHost());
+                clientAddr = (InetSocketAddress) var6.getLocalSocketAddress();
+                var6.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
             try {
-                ServerSocket ss = new ServerSocket(0, 1, InetAddress.getLocalHost());
-                quorumAddr = (InetSocketAddress) ss.getLocalSocketAddress();
-                ss.close();
+                ServerSocket var6 = new ServerSocket(0, 1, InetAddress.getLocalHost());
+                quorumLeaderAddr = (InetSocketAddress) var6.getLocalSocketAddress();
+                var6.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
-            String report = clientAddr.getHostName() + ':' + clientAddr.getPort() + ',' + quorumAddr.getHostName() + ':' + quorumAddr.getPort();
+            try {
+                ServerSocket var6 = new ServerSocket(0, 1, InetAddress.getLocalHost());
+                quorumLeaderElectionAddr = (InetSocketAddress) var6.getLocalSocketAddress();
+                var6.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            String report = clientAddr.getHostName() + ':' + clientAddr.getPort() + ',' + quorumLeaderAddr.getHostName() + ':' + quorumLeaderAddr.getPort() + ':' + quorumLeaderElectionAddr.getPort();
             try {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Reporting " + report);
@@ -165,8 +174,10 @@ class QuorumPeerInstance implements Instance {
             String[] parts = quorumSpecs.split(",");
             peers = new HashMap<Long, QuorumServer>();
             for (int i = 0; i < parts.length; i++) {
-                String[] subparts = parts[i].split(":");
-                peers.put(Long.valueOf(i), new QuorumServer(i, new InetSocketAddress(subparts[0], Integer.parseInt(subparts[1]))));
+                // parts[i] == "host:leaderPort:leaderElectionPort;clientPort"
+                String[] subparts = (parts[i].split(";"))[0].split(":");
+                String clientPort = (parts[i].split(";"))[1];
+                peers.put(Long.valueOf(i), new QuorumServer(i, new InetSocketAddress(subparts[0], Integer.parseInt(subparts[1])), new InetSocketAddress(subparts[0], Integer.parseInt(subparts[2])), new InetSocketAddress(subparts[0], Integer.parseInt(clientPort))));
             }
             try {
                 if (LOG.isDebugEnabled()) {
@@ -283,4 +294,3 @@ class QuorumPeerInstance implements Instance {
         im.getStatus("server" + index, 3000);
     }
 }
-
