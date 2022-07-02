@@ -108,7 +108,7 @@ public class JRecord extends JCompType {
 
     static HashMap<String, String> vectorStructs = new HashMap<String, String>();
 
-    public void genCCode(FileWriter h, FileWriter c) throws IOException {
+    public void genCCode(FileWriter var0, FileWriter c) throws IOException {
         for (JField f : mFields) {
             if (f.getType() instanceof JVector) {
                 JVector jv = (JVector) f.getType();
@@ -116,12 +116,12 @@ public class JRecord extends JCompType {
                 String struct_name = JVector.extractVectorName(jvType);
                 if (vectorStructs.get(struct_name) == null) {
                     vectorStructs.put(struct_name, struct_name);
-                    h.write("struct " + struct_name + " {\n    int count;\n" + jv.getElementType().genCDecl("*data") + ";\n};\n");
-                    h.write("int serialize_" + struct_name + "(struct oarchive *out, const char *tag, struct " + struct_name + " *v);\n");
-                    h.write("int deserialize_" + struct_name + "(struct iarchive *in, const char *tag, struct " + struct_name + " *v);\n");
-                    h.write("int allocate_" + struct_name + "(struct " + struct_name + " *v, int len);\n");
-                    h.write("int deallocate_" + struct_name + "(struct " + struct_name + " *v);\n");
-                    c.write("int allocate_" + struct_name + "(struct " + struct_name + " *v, int len) {\n");
+                    var0.write("struct " + struct_name + " {\n    int32_t count;\n" + jv.getElementType().genCDecl("*data") + ";\n};\n");
+                    var0.write("int serialize_" + struct_name + "(struct oarchive *out, const char *tag, struct " + struct_name + " *v);\n");
+                    var0.write("int deserialize_" + struct_name + "(struct iarchive *in, const char *tag, struct " + struct_name + " *v);\n");
+                    var0.write("int allocate_" + struct_name + "(struct " + struct_name + " *v, int32_t len);\n");
+                    var0.write("int deallocate_" + struct_name + "(struct " + struct_name + " *v);\n");
+                    c.write("int allocate_" + struct_name + "(struct " + struct_name + " *v, int32_t len) {\n");
                     c.write("    if (!len) {\n");
                     c.write("        v->count = 0;\n");
                     c.write("        v->data = 0;\n");
@@ -133,7 +133,7 @@ public class JRecord extends JCompType {
                     c.write("}\n");
                     c.write("int deallocate_" + struct_name + "(struct " + struct_name + " *v) {\n");
                     c.write("    if (v->data) {\n");
-                    c.write("        int i;\n");
+                    c.write("        int32_t i;\n");
                     c.write("        for(i=0;i<v->count; i++) {\n");
                     c.write("            deallocate_" + JRecord.extractMethodSuffix(jvType) + "(&v->data[i]);\n");
                     c.write("        }\n");
@@ -144,9 +144,9 @@ public class JRecord extends JCompType {
                     c.write("}\n");
                     c.write("int serialize_" + struct_name + "(struct oarchive *out, const char *tag, struct " + struct_name + " *v)\n");
                     c.write("{\n");
-                    c.write("    int count = v->count;\n");
+                    c.write("    int32_t count = v->count;\n");
                     c.write("    int rc = 0;\n");
-                    c.write("    int i;\n");
+                    c.write("    int32_t i;\n");
                     c.write("    rc = out->start_vector(out, tag, &count);\n");
                     c.write("    for(i=0;i<v->count;i++) {\n");
                     genSerialize(c, jvType, "data", "data[i]");
@@ -157,7 +157,7 @@ public class JRecord extends JCompType {
                     c.write("int deserialize_" + struct_name + "(struct iarchive *in, const char *tag, struct " + struct_name + " *v)\n");
                     c.write("{\n");
                     c.write("    int rc = 0;\n");
-                    c.write("    int i;\n");
+                    c.write("    int32_t i;\n");
                     c.write("    rc = in->start_vector(in, tag, &v->count);\n");
                     c.write("    v->data = calloc(v->count, sizeof(*v->data));\n");
                     c.write("    for(i=0;i<v->count;i++) {\n");
@@ -170,14 +170,14 @@ public class JRecord extends JCompType {
             }
         }
         String rec_name = getName();
-        h.write("struct " + rec_name + " {\n");
+        var0.write("struct " + rec_name + " {\n");
         for (JField f : mFields) {
-            h.write(f.genCDecl());
+            var0.write(f.genCDecl());
         }
-        h.write("};\n");
-        h.write("int serialize_" + rec_name + "(struct oarchive *out, const char *tag, struct " + rec_name + " *v);\n");
-        h.write("int deserialize_" + rec_name + "(struct iarchive *in, const char *tag, struct " + rec_name + "*v);\n");
-        h.write("void deallocate_" + rec_name + "(struct " + rec_name + "*);\n");
+        var0.write("};\n");
+        var0.write("int serialize_" + rec_name + "(struct oarchive *out, const char *tag, struct " + rec_name + " *v);\n");
+        var0.write("int deserialize_" + rec_name + "(struct iarchive *in, const char *tag, struct " + rec_name + "*v);\n");
+        var0.write("void deallocate_" + rec_name + "(struct " + rec_name + "*);\n");
         c.write("int serialize_" + rec_name + "(struct oarchive *out, const char *tag, struct " + rec_name + " *v)");
         c.write("{\n");
         c.write("    int rc;\n");
@@ -488,4 +488,3 @@ public class JRecord extends JCompType {
         jj.close();
     }
 }
-
