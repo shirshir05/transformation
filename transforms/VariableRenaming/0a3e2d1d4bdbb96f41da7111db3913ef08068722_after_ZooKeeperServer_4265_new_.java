@@ -970,7 +970,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         return false;
     }
 
-    public void processPacket(ServerCnxn cnxn, ByteBuffer incomingBuffer) throws IOException {
+    public void processPacket(ServerCnxn var0, ByteBuffer incomingBuffer) throws IOException {
         // We have the request, now process and setup for next
         InputStream bais = new ByteBufferInputStream(incomingBuffer);
         BinaryInputArchive bia = BinaryInputArchive.getArchive(bais);
@@ -979,7 +979,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         // to the start of the txn
         incomingBuffer = incomingBuffer.slice();
         if (h.getType() == OpCode.auth) {
-            LOG.info("got auth packet " + cnxn.getRemoteSocketAddress());
+            LOG.info("got auth packet " + var0.getRemoteSocketAddress());
             AuthPacket authPacket = new AuthPacket();
             ByteBufferInputStream.byteBuffer2Record(incomingBuffer, authPacket);
             String scheme = authPacket.getScheme();
@@ -987,7 +987,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
             Code authReturn = KeeperException.Code.AUTHFAILED;
             if (ap != null) {
                 try {
-                    authReturn = ap.handleAuthentication(new ServerAuthenticationProvider.ServerObjs(this, cnxn), authPacket.getAuth());
+                    authReturn = ap.handleAuthentication(new ServerAuthenticationProvider.ServerObjs(this, var0), authPacket.getAuth());
                 } catch (RuntimeException e) {
                     LOG.warn("Caught runtime exception from AuthenticationProvider: " + scheme + " due to " + e);
                     authReturn = KeeperException.Code.AUTHFAILED;
@@ -997,9 +997,9 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Authentication succeeded for scheme: " + scheme);
                 }
-                LOG.info("auth success " + cnxn.getRemoteSocketAddress());
+                LOG.info("auth success " + var0.getRemoteSocketAddress());
                 ReplyHeader rh = new ReplyHeader(h.getXid(), 0, KeeperException.Code.OK.intValue());
-                cnxn.sendResponse(rh, null, null);
+                var0.sendResponse(rh, null, null);
             } else {
                 if (ap == null) {
                     LOG.warn("No authentication provider for scheme: " + scheme + " has " + ProviderRegistry.listProviders());
@@ -1008,27 +1008,28 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                 }
                 // send a response...
                 ReplyHeader rh = new ReplyHeader(h.getXid(), 0, KeeperException.Code.AUTHFAILED.intValue());
-                cnxn.sendResponse(rh, null, null);
+                var0.sendResponse(rh, null, null);
                 // ... and close connection
-                cnxn.sendBuffer(ServerCnxnFactory.closeConn);
-                cnxn.disableRecv();
+                var0.sendBuffer(ServerCnxnFactory.closeConn);
+                var0.disableRecv();
             }
             return;
         } else {
             if (h.getType() == OpCode.sasl) {
-                Record rsp = processSasl(incomingBuffer, cnxn);
+                Record rsp = processSasl(incomingBuffer, var0);
                 ReplyHeader rh = new ReplyHeader(h.getXid(), 0, KeeperException.Code.OK.intValue());
                 // not sure about 3rd arg..what is it?
-                cnxn.sendResponse(rh, rsp, "response");
+                var0.sendResponse(rh, rsp, "response");
+                return;
             } else {
-                Request si = new Request(cnxn, cnxn.getSessionId(), h.getXid(), h.getType(), incomingBuffer, cnxn.getAuthInfo());
+                Request si = new Request(var0, var0.getSessionId(), h.getXid(), h.getType(), incomingBuffer, var0.getAuthInfo());
                 si.setOwner(ServerCnxn.me);
                 // local request.
                 setLocalSessionFlag(si);
                 submitRequest(si);
             }
         }
-        cnxn.incrOutstandingRequests(h);
+        var0.incrOutstandingRequests(h);
     }
 
     private Record processSasl(ByteBuffer incomingBuffer, ServerCnxn cnxn) throws IOException {
@@ -1120,4 +1121,3 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         this.zkShutdownHandler = zkShutdownHandler;
     }
 }
-
