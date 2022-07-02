@@ -244,9 +244,9 @@ public class Util {
         try {
             byte[] bytes = ia.readBuffer("txtEntry");
             // empty transaction
-            if (0 == bytes.length)
+            if (bytes.length == 0)
                 return bytes;
-            if (ia.readByte("EOF") != 'B') {
+            if ('B' != ia.readByte("EOF")) {
                 LOG.error("Last transaction was partial.");
                 return null;
             }
