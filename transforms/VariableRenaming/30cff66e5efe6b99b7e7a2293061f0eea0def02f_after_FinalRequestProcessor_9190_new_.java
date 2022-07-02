@@ -47,8 +47,6 @@ import org.apache.zookeeper.proto.SetWatches;
 import org.apache.zookeeper.proto.SyncRequest;
 import org.apache.zookeeper.proto.SyncResponse;
 import org.apache.zookeeper.server.DataTree.ProcessTxnResult;
-import org.apache.zookeeper.server.NIOServerCnxn.CnxnStats;
-import org.apache.zookeeper.server.NIOServerCnxn.Factory;
 import org.apache.zookeeper.server.ZooKeeperServer.ChangeRecord;
 import org.apache.zookeeper.txn.CreateSessionTxn;
 import org.apache.zookeeper.txn.ErrorTxn;
@@ -114,7 +112,7 @@ public class FinalRequestProcessor implements RequestProcessor {
             }
         }
         if (request.hdr != null && request.hdr.getType() == OpCode.closeSession) {
-            Factory scxn = zks.getServerCnxnFactory();
+            ServerCnxnFactory scxn = zks.getServerCnxnFactory();
             // we might just be playing diffs from the leader
             if (scxn != null && request.cnxn == null) {
                 // in the switch block below
@@ -147,7 +145,7 @@ public class FinalRequestProcessor implements RequestProcessor {
                     {
                         zks.serverStats().updateLatency(request.createTime);
                         lastOp = "PING";
-                        ((CnxnStats) cnxn.getStats()).updateForResponse(request.cxid, request.zxid, lastOp, request.createTime, System.currentTimeMillis());
+                        cnxn.updateStatsForResponse(request.cxid, request.zxid, lastOp, request.createTime, System.currentTimeMillis());
                         cnxn.sendResponse(new ReplyHeader(-2, zks.getZKDatabase().getDataTreeLastProcessedZxid(), 0), null, "response");
                         return;
                     }
@@ -155,8 +153,8 @@ public class FinalRequestProcessor implements RequestProcessor {
                     {
                         zks.serverStats().updateLatency(request.createTime);
                         lastOp = "SESS";
-                        ((CnxnStats) cnxn.getStats()).updateForResponse(request.cxid, request.zxid, lastOp, request.createTime, System.currentTimeMillis());
-                        cnxn.finishSessionInit(true);
+                        cnxn.updateStatsForResponse(request.cxid, request.zxid, lastOp, request.createTime, System.currentTimeMillis());
+                        zks.finishSessionInit(request.cnxn, true);
                         return;
                     }
                 case OpCode.create:
@@ -218,9 +216,9 @@ public class FinalRequestProcessor implements RequestProcessor {
                 case OpCode.getData:
                     {
                         lastOp = "GETD";
-                        GetDataRequest getDataRequest = new GetDataRequest();
-                        ZooKeeperServer.byteBuffer2Record(request.request, getDataRequest);
-                        DataNode n = zks.getZKDatabase().getNode(getDataRequest.getPath());
+                        GetDataRequest var16 = new GetDataRequest();
+                        ZooKeeperServer.byteBuffer2Record(request.request, var16);
+                        DataNode n = zks.getZKDatabase().getNode(var16.getPath());
                         if (n == null) {
                             throw new KeeperException.NoNodeException();
                         }
@@ -230,7 +228,7 @@ public class FinalRequestProcessor implements RequestProcessor {
                         }
                         PrepRequestProcessor.checkACL(zks, zks.getZKDatabase().convertLong(aclL), ZooDefs.Perms.READ, request.authInfo);
                         Stat stat = new Stat();
-                        byte[] b = zks.getZKDatabase().getData(getDataRequest.getPath(), stat, getDataRequest.getWatch() ? cnxn : null);
+                        byte[] b = zks.getZKDatabase().getData(var16.getPath(), stat, var16.getWatch() ? cnxn : null);
                         rsp = new GetDataResponse(b, stat);
                         break;
                     }
@@ -313,7 +311,7 @@ public class FinalRequestProcessor implements RequestProcessor {
         }
         ReplyHeader hdr = new ReplyHeader(request.cxid, request.zxid, err.intValue());
         zks.serverStats().updateLatency(request.createTime);
-        ((CnxnStats) cnxn.getStats()).updateForResponse(request.cxid, request.zxid, lastOp, request.createTime, System.currentTimeMillis());
+        cnxn.updateStatsForResponse(request.cxid, request.zxid, lastOp, request.createTime, System.currentTimeMillis());
         try {
             cnxn.sendResponse(hdr, rsp, "response");
             if (closeSession) {
@@ -329,4 +327,3 @@ public class FinalRequestProcessor implements RequestProcessor {
         LOG.info("shutdown of request processor complete");
     }
 }
-
