@@ -20,6 +20,7 @@ package org.apache.zookeeper.server;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.nio.ByteBuffer;
 import org.apache.jute.Index;
 import org.apache.jute.InputArchive;
 import org.apache.jute.OutputArchive;
@@ -54,7 +56,14 @@ import org.apache.zookeeper.txn.DeleteTxn;
 import org.apache.zookeeper.txn.ErrorTxn;
 import org.apache.zookeeper.txn.SetACLTxn;
 import org.apache.zookeeper.txn.SetDataTxn;
+import org.apache.zookeeper.txn.CheckVersionTxn;
+import org.apache.zookeeper.txn.Txn;
+import org.apache.zookeeper.txn.MultiTxn;
 import org.apache.zookeeper.txn.TxnHeader;
+import org.apache.zookeeper.proto.CreateRequest;
+import org.apache.zookeeper.proto.DeleteRequest;
+import org.apache.zookeeper.proto.SetACLRequest;
+import org.apache.zookeeper.proto.SetDataRequest;
 
 /**
  * This class maintains the tree data structure. It doesn't have any networking
@@ -700,6 +709,8 @@ public class DataTree {
 
         public Stat stat;
 
+        public List<ProcessTxnResult> multiResult;
+
         /**
          * Equality is defined as the clientId and the cxid being the same. This
          * allows us to use hash tables to track completion of transactions.
@@ -729,52 +740,114 @@ public class DataTree {
 
     public volatile long lastProcessedZxid = 0;
 
-    public ProcessTxnResult processTxn(TxnHeader header, Record txn) {
+    public ProcessTxnResult processTxn(TxnHeader var0, Record txn) {
         ProcessTxnResult rc = new ProcessTxnResult();
         String debug = "";
         try {
-            rc.clientId = header.getClientId();
-            rc.cxid = header.getCxid();
-            rc.zxid = header.getZxid();
-            rc.type = header.getType();
+            rc.clientId = var0.getClientId();
+            rc.cxid = var0.getCxid();
+            rc.zxid = var0.getZxid();
+            rc.type = var0.getType();
             rc.err = 0;
+            rc.multiResult = null;
             if (rc.zxid > lastProcessedZxid) {
                 lastProcessedZxid = rc.zxid;
             }
-            switch(header.getType()) {
+            switch(var0.getType()) {
                 case OpCode.create:
                     CreateTxn createTxn = (CreateTxn) txn;
                     debug = "Create transaction for " + createTxn.getPath();
                     rc.path = createTxn.getPath();
-                    createNode(createTxn.getPath(), createTxn.getData(), createTxn.getAcl(), createTxn.getEphemeral() ? header.getClientId() : 0, createTxn.getParentCVersion(), header.getZxid(), header.getTime());
+                    createNode(createTxn.getPath(), createTxn.getData(), createTxn.getAcl(), createTxn.getEphemeral() ? var0.getClientId() : 0, createTxn.getParentCVersion(), var0.getZxid(), var0.getTime());
                     break;
                 case OpCode.delete:
                     DeleteTxn deleteTxn = (DeleteTxn) txn;
                     debug = "Delete transaction for " + deleteTxn.getPath();
                     rc.path = deleteTxn.getPath();
-                    deleteNode(deleteTxn.getPath(), header.getZxid());
+                    deleteNode(deleteTxn.getPath(), var0.getZxid());
                     break;
                 case OpCode.setData:
                     SetDataTxn setDataTxn = (SetDataTxn) txn;
-                    debug = "Set data for  transaction for " + setDataTxn.getPath();
-                    rc.stat = setData(setDataTxn.getPath(), setDataTxn.getData(), setDataTxn.getVersion(), header.getZxid(), header.getTime());
+                    debug = "Set data transaction for " + setDataTxn.getPath() + " to new value=" + Arrays.toString(setDataTxn.getData());
+                    rc.stat = setData(setDataTxn.getPath(), setDataTxn.getData(), setDataTxn.getVersion(), var0.getZxid(), var0.getTime());
                     break;
                 case OpCode.setACL:
                     SetACLTxn setACLTxn = (SetACLTxn) txn;
-                    debug = "Set ACL for  transaction for " + setACLTxn.getPath();
+                    debug = "Set ACL transaction for " + setACLTxn.getPath();
                     rc.stat = setACL(setACLTxn.getPath(), setACLTxn.getAcl(), setACLTxn.getVersion());
                     break;
                 case OpCode.closeSession:
-                    killSession(header.getClientId(), header.getZxid());
+                    killSession(var0.getClientId(), var0.getZxid());
                     break;
                 case OpCode.error:
                     ErrorTxn errTxn = (ErrorTxn) txn;
                     rc.err = errTxn.getErr();
                     break;
+                case OpCode.check:
+                    CheckVersionTxn checkTxn = (CheckVersionTxn) txn;
+                    debug = "Check Version transaction for " + checkTxn.getPath() + " and version=" + checkTxn.getVersion();
+                    rc.path = checkTxn.getPath();
+                    break;
+                case OpCode.multi:
+                    MultiTxn multiTxn = (MultiTxn) txn;
+                    List<Txn> txns = multiTxn.getTxns();
+                    debug = "Multi transaction with " + txns.size() + " operations";
+                    rc.multiResult = new ArrayList<ProcessTxnResult>();
+                    boolean failed = false;
+                    for (Txn subtxn : txns) {
+                        if (subtxn.getType() == OpCode.error) {
+                            failed = true;
+                            break;
+                        }
+                    }
+                    boolean post_failed = false;
+                    for (Txn subtxn : txns) {
+                        ByteBuffer bb = ByteBuffer.wrap(subtxn.getData());
+                        Record record = null;
+                        switch(subtxn.getType()) {
+                            case OpCode.create:
+                                record = new CreateTxn();
+                                break;
+                            case OpCode.delete:
+                                record = new DeleteTxn();
+                                break;
+                            case OpCode.setData:
+                                record = new SetDataTxn();
+                                break;
+                            case OpCode.error:
+                                record = new ErrorTxn();
+                                post_failed = true;
+                                break;
+                            case OpCode.check:
+                                record = new CheckVersionTxn();
+                                break;
+                            default:
+                                throw new IOException("Invalid type of op: " + subtxn.getType());
+                        }
+                        assert (record != null);
+                        ZooKeeperServer.byteBuffer2Record(bb, record);
+                        if (failed && subtxn.getType() != OpCode.error) {
+                            int ec = post_failed ? Code.RUNTIMEINCONSISTENCY.intValue() : Code.OK.intValue();
+                            subtxn.setType(OpCode.error);
+                            record = new ErrorTxn(ec);
+                        }
+                        if (failed) {
+                            assert (subtxn.getType() == OpCode.error);
+                        }
+                        TxnHeader subHdr = new TxnHeader(var0.getClientId(), var0.getCxid(), var0.getZxid(), var0.getTime(), subtxn.getType());
+                        ProcessTxnResult subRc = processTxn(subHdr, record);
+                        rc.multiResult.add(subRc);
+                        if (subRc.err != 0 && rc.err == 0) {
+                            rc.err = subRc.err;
+                        }
+                    }
+                    break;
             }
         } catch (KeeperException e) {
-            LOG.debug("Failed: " + debug, e);
+            LOG.warn("Failed: " + debug, e);
             rc.err = e.code().intValue();
+        } catch (IOException e) {
+            LOG.warn("Failed:" + debug, e);
         }
         return rc;
     }
@@ -1153,4 +1226,3 @@ public class DataTree {
         }
     }
 }
-
